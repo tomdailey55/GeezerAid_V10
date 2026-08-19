@@ -1,0 +1,9 @@
+btrfs-progs
+cronie
+efibootmgr
+git
+ollama
+python3-pip
+rsync
+smartmontools
+syncthing

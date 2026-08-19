@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Genius TV — Dashboard Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d0f13;
+    color: #e8e6e1;
+    font-family: -apple-system, "Segoe UI", Helvetica, sans-serif;
+    padding: 18px;
+  }
+  .frame {
+    border: 1px solid #2a2f38;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #11141a;
+    margin-bottom: 26px;
+  }
+  .caption {
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #8b93a1;
+    padding: 10px 14px;
+    border-bottom: 1px solid #2a2f38;
+    background: #0f1218;
+  }
+  .screen { aspect-ratio: 16 / 9; position: relative; display: flex; flex-direction: column; }
+  .tiles { flex: 1; display: grid; gap: 10px; padding: 12px; }
+  .two  { grid-template-columns: 1fr 1fr; }
+  .tile {
+    background: #171b22;
+    border: 1px solid #262c36;
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .tile h3 {
+    font-size: 11px; letter-spacing: .13em; text-transform: uppercase;
+    color: #7f8797; font-weight: 600; margin-bottom: 10px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .badge {
+    font-size: 9px; padding: 2px 7px; border-radius: 99px;
+    border: 1px solid #37414f; color: #9aa4b4; letter-spacing: .08em;
+  }
+  .live { border-color: #2f6f4f; color: #6ddf9f; }
+  .adb  { border-color: #6b5730; color: #e0b060; }
+  h2.title { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .meta { font-size: 12px; color: #8b93a1; margin-bottom: 12px; }
+  ul { list-style: none; font-size: 13px; line-height: 1.85; }
+  ul li::before { content: "◦ "; color: #6b7484; }
+  .videobox {
+    flex: 1; border-radius: 6px; min-height: 90px;
+    background: linear-gradient(135deg, #1d232c, #12161c);
+    border: 1px solid #2b323d;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 8px; text-align: center;
+  }
+  .play {
+    width: 42px; height: 42px; border-radius: 50%;
+    border: 1px solid #4a5464; color: #cfd6e0;
+    display: flex; align-items: center; justify-content: center; font-size: 15px;
+  }
+  .vlabel { font-size: 11px; color: #8b93a1; padding: 0 12px; }
+  .bar {
+    border-top: 1px solid #262c36; background: #0f1218;
+    padding: 9px 16px; font-size: 12px; color: #9aa4b4;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .said { color: #e8e6e1; }
+  .said em { color: #6ddf9f; font-style: normal; }
+  .dot { color: #6ddf9f; }
+  .note {
+    font-size: 12px; line-height: 1.7; color: #99a2b0;
+    border-left: 2px solid #2f6f4f; padding: 2px 0 2px 12px; margin: 0 0 22px 2px;
+  }
+  .note b { color: #e8e6e1; font-weight: 600; }
+  .warn { border-left-color: #6b5730; }
+  h1 { font-size: 17px; margin-bottom: 6px; }
+  .sub { font-size: 12px; color: #8b93a1; margin-bottom: 22px; }
+</style>
+</head>
+<body>
+<h1>Genius TV — Dashboard (mockup)</h1>
+<p class="sub">Third screen state: ambient screensaver → <b>dashboard</b> → focused. Two real cases below.</p>
+<p class="note"><b>Case 1 — "Hey Jeeves, show me my recipe for cherries jubilee with the video it came from."</b>
+Both tiles live on the Genius TV screen. Data is real: <code>recipes/classic-cherries-jubilee.md</code>
+already carries <code>source:</code> = the YouTube URL, so this is a field lookup, not a search guess.</p>
+
+<div class="frame">
+  <div class="caption">Layout: 2-pane split · RecipeSheet + VideoSheet</div>
+  <div class="screen">
+    <div class="tiles two">
+      <div class="tile">
+        <h3>Recipe <span class="badge live">elder-brain</span></h3>
+        <h2 class="title">Classic Cherries Jubilee</h2>
+        <div class="meta">Serves 4 · prep 5 min · cook 15 min</div>
+        <ul>
+          <li>1 lb dark sweet cherries, pitted</li>
+          <li>2 tbsp unsalted butter</li>
+          <li>2 tbsp granulated sugar</li>
+          <li>1 tbsp lemon juice</li>
+          <li>1 tbsp brandy or kirsch (flambé)</li>
+          <li>1/4 tsp almond extract</li>
+          <li>Pinch of salt</li>
+          <li>Vanilla ice cream, to serve</li>
+        </ul>
+      </div>
+      <div class="tile">
+        <h3>Source video <span class="badge live">in-tile</span></h3>
+        <div class="videobox">
+          <div class="play">▶</div>
+          <div class="vlabel">Classic Cherries Jubilee Recipe | Quick and Easy</div>
+        </div>
+        <div class="meta" style="margin:10px 0 0">youtube.com · watch?v=sI9p70_Wc6s</div>
+      </div>
+    </div>
+    <div class="bar">
+      <span class="said">“show me my recipe for cherries jubilee <em>with the video it came from</em>”</span>
+      <span><span class="dot">●</span> Jeeves</span>
+    </div>
+  </div>
+</div>
+
+<p class="note warn"><b>Case 2 — "show me reviews of Game of Thrones and season 1, episode 1 simultaneously."</b>
+Reviews tile is live web (QtWebEngine). The episode <b>cannot</b> be tiled — Widevine DRM forbids
+compositing HBO/Netflix/Prime into another surface. So the tile shows episode metadata + trailer,
+and “play it” hands off fullscreen to the Fire TV via ADB.</p>
+
+<div class="frame">
+  <div class="caption">Layout: 2-pane split · WebSheet + EpisodeSheet (playback → ADB)</div>
+  <div class="screen">
+    <div class="tiles two">
+      <div class="tile">
+        <h3>Reviews <span class="badge live">live web</span></h3>
+        <h2 class="title">Game of Thrones</h2>
+        <div class="meta">Rotten Tomatoes · 89% critics · 85% audience</div>
+        <ul>
+          <li>“A sprawling, gorgeously mounted fantasy.” — Variety</li>
+          <li>“Dense, brutal and utterly absorbing.” — The Guardian</li>
+          <li>“Sets a new bar for television scale.” — IGN</li>
+          <li>IMDb 9.2/10 · 2.3M ratings</li>
+        </ul>
+      </div>
+      <div class="tile">
+        <h3>S1 · E1 <span class="badge adb">playback → ADB</span></h3>
+        <h2 class="title">Winter Is Coming</h2>
+        <div class="meta">2011 · 62 min · HBO · IMDb 9.1</div>
+        <div class="videobox">
+          <div class="play">▶</div>
+          <div class="vlabel">Trailer plays in-tile · full episode is DRM-protected</div>
+        </div>
+        <div class="meta" style="margin:10px 0 0">say “play it” → HBO Max fullscreen on Theater 65"</div>
+      </div>
+    </div>
+    <div class="bar">
+      <span class="said">“show me reviews of Game of Thrones and <em>season 1, episode 1</em> simultaneously”</span>
+      <span><span class="dot">●</span> Jeeves</span>
+    </div>
+  </div>
+</div>
+
+<p class="note"><b>The rule the mockup encodes:</b> non-DRM content (recipes, web, YouTube, trailers,
+your own media) tiles freely on the Genius TV. DRM streaming goes fullscreen on the Fire TV via ADB.
+The dashboard is the <b>briefing surface</b>; the TV is the <b>playback surface</b>.</p>
+</body>
+</html>
