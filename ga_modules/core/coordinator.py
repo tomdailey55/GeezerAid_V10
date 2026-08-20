@@ -123,7 +123,7 @@ class Coordinator:
         self._log_interaction(command, response, context, time.time() - start_time)
         return response
     
-    def _log_interaction(self, command: str, response: Response, context: dict, duration: float):
+    def _log_interaction(self, command: str, response: "Response", context: dict, duration: float):
         """Log an interaction to the data flywheel."""
         try:
             interaction = Interaction(

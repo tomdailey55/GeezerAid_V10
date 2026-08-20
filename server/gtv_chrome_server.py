@@ -7,6 +7,7 @@ Art rotation, clock, and weather are client-side (JS).
 """
 import http.server
 import os
+import time
 import socketserver
 import threading
 import urllib.request
