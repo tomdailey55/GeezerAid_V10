@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Pre-commit hook: refuse the commit unless the test suite passes.
+# Mirrors CI locally so broken code (e.g. collection errors, NameErrors)
+# can never be committed — even if the author forgets to run tests.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# Use the project venv if present, else system python.
+PY="python3"
+if [ -x ".venv/bin/python" ]; then
+  PY=".venv/bin/python"
+fi
+
+echo "▶ running test suite (pre-commit gate)..."
+if ! "$PY" -m pytest -q ga_modules/tests/ 2>&1 | tail -5; then
+  echo "✗ Tests FAILED — commit blocked."
+  echo "  Fix the failures (or run with --no-verify if you truly intend to commit broken code)."
+  exit 1
+fi
+echo "✓ Tests passed — committing."
