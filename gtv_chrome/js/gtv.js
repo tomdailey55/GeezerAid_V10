@@ -120,17 +120,12 @@ window.gtv = (() => {
 
     async function updateWeather() {
         try {
-            const loc = encodeURIComponent('Sarasota,FL');
-            const resp = await fetch(`https://wttr.in/${loc}?format=%C|%t|%f|%h`, {
-                headers: { 'User-Agent': 'curl/8' }
-            });
-            const raw = await resp.text();
-            const parts = raw.split('|').map(p => p.trim());
-            if (parts.length >= 4 && parts[1]) {
-                const [cond, temp, feels, hum] = parts;
-                const summary = `${temp.replace('+', '')} · ${cond}`;
-                const detail = feels !== temp ? `Feels like ${feels}` : `Humidity ${hum}`;
-                document.getElementById('weather').textContent = `${summary} · ${detail}`;
+            const resp = await fetch('/api/weather');
+            if (resp.ok) {
+                const data = await resp.json();
+                document.getElementById('weather').textContent = `${data.summary}${data.detail ? ' · ' + data.detail : ''}`;
+            } else {
+                document.getElementById('weather').textContent = '—';
             }
         } catch (e) {
             document.getElementById('weather').textContent = '—';
@@ -155,10 +150,11 @@ window.gtv = (() => {
         const next = nextArt();
         const title = ART_TITLES[next] || next.replace(/_/g, ' ');
         document.getElementById('art-title').textContent = title;
-        
+        showBar();  // brief bar visibility on each painting change
+
         const artNext = document.getElementById('art-next');
         const artCurrent = document.getElementById('art-current');
-        
+
         artNext.src = `art/${next}.jpg`;
         artNext.onload = () => {
             artNext.style.opacity = '1';
@@ -227,6 +223,10 @@ window.gtv = (() => {
         const first = ART[0];
         document.getElementById('art-current').src = `art/${first}.jpg`;
         document.getElementById('art-title').textContent = ART_TITLES[first] || first;
+
+        // Initialize GENIUS TV brand visibility (start shown, end hidden)
+        document.getElementById('brand-start').style.display = '';
+        document.getElementById('brand-end').style.display = 'none';
 
         // Timers
         updateClock();

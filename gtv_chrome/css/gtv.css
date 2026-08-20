@@ -120,7 +120,7 @@ body:hover #exit-btn {
     z-index: 10;
     display: flex;
     align-items: center;
-    transition: top 0.5s, bottom 0.5s;
+    transition: top 0.5s ease, bottom 0.5s ease, opacity 2.5s ease;
 }
 
 #info-bar.bottom {

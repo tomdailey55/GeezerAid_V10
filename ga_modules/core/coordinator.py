@@ -18,6 +18,8 @@ import logging
 import time
 from typing import Any, Optional
 
+from ga_modules.core.data_flywheel import InteractionLogger, EvalDataset, CostTracker, Interaction, patch_coordinator
+
 from ga_modules.core.state_manager import StateManager
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,11 @@ class Coordinator:
         
         # Routing stats
         self.routes = {"ha_intent": 0, "knowledge": 0, "ha_tool": 0, "local_llm": 0, "cloud_llm": 0}
+        
+        # Data flywheel
+        self.interaction_logger = InteractionLogger()
+        self.eval_dataset = EvalDataset(self.interaction_logger)
+        self.cost_tracker = CostTracker(self.interaction_logger.db_path)
 
     def register_module(self, name: str, module: Any):
         """Register a local module."""
@@ -61,15 +68,10 @@ class Coordinator:
 
     def route_command(self, command: str, context: Optional[dict] = None) -> "Response":
         """
-        Decide how to handle a command.
-        
-        Args:
-            command: The user's text command
-            context: dict with user, room, history, household
-            
-        Returns: Response with text, summary, source
+        Decide how to handle a command. Logs every interaction to the data flywheel.
         """
         context = context or self.state.get_context()
+        start_time = time.time()
         
         # 1. SAFETY CHECK
         if self.safety and self.safety.is_dangerous(command):
@@ -78,7 +80,9 @@ class Coordinator:
                 "command": command,
                 "reason": "Safety rule",
             })
-            return Response("I can't do that for safety reasons.", source="safety")
+            response = Response("I can't do that for safety reasons.", source="safety")
+            self._log_interaction(command, response, context, time.time() - start_time)
+            return response
 
         # 2. HA BUILT-IN INTENTS (200ms fast path)
         if self.ha:
@@ -86,18 +90,23 @@ class Coordinator:
             if intent:
                 result = self.ha.call_service(intent.service, intent.entity, **intent.params)
                 self.routes["ha_intent"] += 1
-                return Response(f"Done. {result}", source="ha_intent")
+                response = Response(f"Done. {result}", source="ha_intent")
+                self._log_interaction(command, response, context, time.time() - start_time)
+                return response
 
         # 3. GA LOCAL KNOWLEDGE (recipes, calendar, preferences)
         knowledge = self.try_knowledge(command)
         if knowledge:
             self.routes["knowledge"] += 1
-            return Response(knowledge, source="knowledge")
+            response = Response(knowledge, source="knowledge")
+            self._log_interaction(command, response, context, time.time() - start_time)
+            return response
 
         # 4. HA TOOL CALLING (device control via LLM)
         if self.ha and self.ha.can_control(command):
             response = self.via_ha_tool_calling(command, context)
             self.routes["ha_tool"] += 1
+            self._log_interaction(command, response, context, time.time() - start_time)
             return response
 
         # 5. LOCAL LLM (fast, private)
@@ -105,12 +114,30 @@ class Coordinator:
             response = self.modules["llm"].generate(command, context)
             if response and response.confidence > 0.7:
                 self.routes["local_llm"] += 1
+                self._log_interaction(command, response, context, time.time() - start_time)
                 return Response(response.text, source="local_llm")
 
         # 6. CLOUD LLM BACKUP (complex queries)
         response = self.via_cloud_llm(command, context)
         self.routes["cloud_llm"] += 1
+        self._log_interaction(command, response, context, time.time() - start_time)
         return response
+    
+    def _log_interaction(self, command: str, response: Response, context: dict, duration: float):
+        """Log an interaction to the data flywheel."""
+        try:
+            interaction = Interaction(
+                command=command,
+                model_source=response.source,
+                result_text=response.text[:500],
+                timestamp=time.time(),
+                user=context.get("user", "unknown"),
+                room=context.get("room", "unknown"),
+                latency_ms=duration * 1000
+            )
+            self.interaction_logger.log(interaction)
+        except Exception as e:
+            logger.warning(f"Failed to log interaction: {e}")
 
     def route_voice(self, audio: bytes, context: Optional[dict] = None) -> "Response":
         """Full voice pipeline: transcribe → route → respond."""
@@ -187,6 +214,14 @@ class Coordinator:
     def get_route_stats(self) -> dict:
         """Get routing statistics."""
         return dict(self.routes)
+    
+    def get_flywheel_stats(self) -> dict:
+        """Get data flywheel statistics."""
+        return {
+            "interactions": self.interaction_logger.get_stats(),
+            "cost": self.cost_tracker.get_cost_summary(),
+            "routes": dict(self.routes)
+        }
 
 
 class Response:
