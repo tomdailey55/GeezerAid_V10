@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # gtv-dashboard.sh — show/hide the Chrome-hosted Genius TV dashboard.
 #
-# The dashboard REPLACES the QML ambient window while active (user decision),
-# then the QML screensaver returns when the dashboard is dismissed.
+# The dashboard REPLACES the Chrome ambient window while active (user decision),
+# then the Chrome ambient returns when the dashboard is dismissed.
 #
-#   gtv-dashboard.sh show     # stop QML ambient, open Chrome kiosk dashboard
-#   gtv-dashboard.sh hide     # close Chrome, bring QML ambient back
+#   gtv-dashboard.sh show     # stop Chrome ambient, open Chrome kiosk dashboard
+#   gtv-dashboard.sh hide     # close Chrome, bring Chrome ambient back
 #   gtv-dashboard.sh app URL  # open a positioned --app window (DRM services)
 #
 # Wayland notes (verified on this box):
@@ -16,8 +16,7 @@ set -uo pipefail
 
 DASH_URL="${GTV_DASH_URL:-http://127.0.0.1:8770/index.html}"
 PROFILE="${GTV_CHROME_PROFILE:-$HOME/.config/gtv-chrome}"
-GA_DIR="$HOME/mbp-public/GA-V9"
-VENV="$GA_DIR/.venv_gui/bin/python"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Living-room legibility. The dashboard CSS was authored against 1080p, so on a
 # 4K panel every dimension renders at half its intended physical size — which is
@@ -56,15 +55,14 @@ chrome_common=(
 
 case "${1:-show}" in
   show)
-    # 1. Stand down the QML ambient layer (dashboard replaces it).
-    systemctl --user stop jeeves-gtv 2>/dev/null || true
-    pkill -f 'jeeves_speaker.py' 2>/dev/null || true
+    # 1. Stand down the ambient layer (dashboard replaces it).
+    pkill -f 'chrome.*gtv_chrome' 2>/dev/null || true
     sleep 1
 
     # 2. Confirm the dashboard server is up before showing a blank window.
     if ! curl -sf -m 5 "${DASH_URL%/index.html}/api/health" >/dev/null; then
       echo "dashboard server not responding — starting it"
-      systemd-run --user --unit=gtv-dash --working-directory="$GA_DIR" \
+      systemd-run --user --unit=gtv-dash --working-directory="$HERE/server" \
         /usr/bin/python3 gtv_dashboard_server.py >/dev/null 2>&1 || true
       sleep 3
     fi
@@ -87,11 +85,9 @@ case "${1:-show}" in
       pkill -f "user-data-dir=$PROFILE$" 2>/dev/null || true
     pkill -f -- "--kiosk --app=$DASH_URL" 2>/dev/null || true
     sleep 1
-    # Bring the ambient screensaver back.
-    rm -f "$GA_DIR/.jeeves_mic.lock"
-    systemd-run --user --unit=jeeves-gtv --working-directory="$GA_DIR" \
-      "$VENV" jeeves_speaker.py --gui --genius-tv >/dev/null 2>&1 || true
-    echo "ambient restored"
+    # Bring the Chrome ambient display back.
+    nohup "$HERE/gtv_chrome/launch-gtv-chrome.sh" >/tmp/gtv-chrome.log 2>&1 &
+    echo "chrome ambient restored"
     ;;
 
   app)
@@ -128,8 +124,8 @@ case "${1:-show}" in
     curl -sf -m 4 "${DASH_URL%/index.html}/api/health" || echo "down"
     echo -n "chrome dashboard: "
     pgrep -f "user-data-dir=$PROFILE" >/dev/null && echo "running" || echo "not running"
-    echo -n "qml ambient:      "
-    pgrep -f 'jeeves_speaker.py' >/dev/null && echo "running" || echo "not running"
+    echo -n "chrome ambient:   "
+    pgrep -f 'gtv_chrome' >/dev/null && echo "running" || echo "not running"
     ;;
 
   *)

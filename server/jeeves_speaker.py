@@ -40,7 +40,7 @@ import time
 try:
     import tkinter as tk
 except ImportError:
-    tk = None  # tkinter not available (e.g. Python 3.14 venv) — Genius TV GUI doesn't need it
+    tk = None  # tkinter not available (e.g. Python 3.14 venv) — ambient GUI isn't required
 import queue
 import wave
 import audioop
@@ -1062,7 +1062,6 @@ def main():
     p = argparse.ArgumentParser(description="Jeeves always-on smart speaker")
     p.add_argument("--no-gui", action="store_true", help="headless mode (default for daemon)")
     p.add_argument("--gui", action="store_true", help="show ambient fullscreen GUI (desktop session)")
-    p.add_argument("--genius-tv", action="store_true", help="use the QtQuick Genius TV GUI (art backdrop)")
     p.add_argument("--with-video", action="store_true", help="show YouTube video")
     p.add_argument("--no-audio", action="store_true", help="text only (no TTS)")
     p.add_argument("--server", default=lc.DEFAULT_URL)
@@ -1089,38 +1088,20 @@ def main():
     gui = None
     use_gui = args.gui and (os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"))
     if use_gui:
-        if args.genius_tv:
-            # QtQuick Genius TV GUI (art backdrop) — drop-in AmbientGUI replacement
-            import genius_tv
-            gtv = genius_tv.GeniusTVGUI()
-            gui = gtv
-            gui.attach(monitor)
-            t = threading.Thread(target=run, args=(monitor, gui, args.with_video),
-                                 daemon=True)
-            t.start()
+        root = tk.Tk()
+        gui = AmbientGUI(root)
+        gui.attach(monitor)
+        t = threading.Thread(target=run, args=(monitor, gui, args.with_video),
+                             daemon=True)
+        t.start()
+        try:
+            root.mainloop()
+        finally:
+            monitor.stop()
             try:
-                gui.mainloop()
-            finally:
-                monitor.stop()
-                try:
-                    os.unlink(MIC_LOCK)
-                except OSError:
-                    pass
-        else:
-            root = tk.Tk()
-            gui = AmbientGUI(root)
-            gui.attach(monitor)
-            t = threading.Thread(target=run, args=(monitor, gui, args.with_video),
-                                 daemon=True)
-            t.start()
-            try:
-                root.mainloop()
-            finally:
-                monitor.stop()
-                try:
-                    os.unlink(MIC_LOCK)
-                except OSError:
-                    pass
+                os.unlink(MIC_LOCK)
+            except OSError:
+                pass
     else:
         try:
             run(monitor, None, args.with_video)

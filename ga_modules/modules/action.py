@@ -2,9 +2,9 @@
 GeezerAid — Action Module
 
 Text-to-speech + display control.
-Wraps Kokoro TTS (already running on Strix) and QML display.
+Wraps Kokoro TTS (already running on Strix) and the Chrome ambient display.
 
-Real path: server_v9.py:293-303 (Kokoro TTS) + ga_main.qml:setWeather (display)
+Real path: server_v9.py:293-303 (Kokoro TTS) + gtv_chrome server (display)
 """
 import logging
 import os
@@ -77,7 +77,7 @@ class ActionModule:
             return None
 
     # ============================================================
-    # Display Control (real: ga_main.qml:setWeather slot)
+    # Display Control (real: gtv_chrome server weather endpoint)
     # ============================================================
 
     def show_text(self, text: str, target: str = "bottom"):
