@@ -54,6 +54,13 @@ class GTVHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
             self.wfile.write(json.dumps(data).encode())
+        elif self.path == "/api/quit":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True}).encode())
+            # Schedule Chrome kill after response
+            threading.Thread(target=self._kill_chrome, daemon=True).start()
         elif self.path == "/api/status":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -61,6 +68,12 @@ class GTVHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": True, "service": "gtv-chrome"}).encode())
         else:
             super().do_GET()
+    
+    def _kill_chrome(self):
+        """Kill the Chrome process after a brief delay."""
+        time.sleep(0.5)
+        os.system("pkill -f 'chrome.*8771' 2>/dev/null")
+        os.system("pkill -f 'chrome.*gtv-chrome' 2>/dev/null")
 
     def log_message(self, format, *args):
         pass  # silence request logs

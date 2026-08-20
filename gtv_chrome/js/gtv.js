@@ -210,12 +210,18 @@ window.gtv = (() => {
     }
 
     function quit() {
-        // Send quit message to parent or close
-        if (window.chrome && window.chrome.webview) {
-            window.chrome.webview.postMessage('quit');
-        } else {
-            window.close();
-        }
+        // Try to close via window.close()
+        window.close();
+        
+        // If that doesn't work (Chrome kiosk mode), navigate to blank
+        setTimeout(() => {
+            window.location.href = 'about:blank';
+        }, 500);
+        
+        // Also try to signal the server
+        try {
+            fetch('/api/quit', {method: 'POST'});
+        } catch (e) {}
     }
 
     function init() {
