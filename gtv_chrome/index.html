@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Genius TV</title>
+<link rel="stylesheet" href="css/gtv.css">
+</head>
+<body>
+<!-- Full-bleed art backdrop -->
+<div id="art-backdrop">
+    <img id="art-current" src="" alt="">
+    <img id="art-next" src="" alt="">
+    <div id="art-dim"></div>
+</div>
+
+<!-- Voice state (top-center) -->
+<div id="voice-state">
+    <div id="state-dot"></div>
+    <div id="caption"></div>
+</div>
+
+<!-- Transcript -->
+<div id="transcript"></div>
+
+<!-- Suggestion -->
+<div id="suggestion"></div>
+
+<!-- Inline bar (migrates top/bottom) -->
+<div id="info-bar">
+    <div id="bar-row">
+        <span class="bar-item" id="brand-start">GENIUS TV</span>
+        <span class="bar-item" id="art-title"></span>
+        <span class="bar-item" id="clock"></span>
+        <span class="bar-item" id="date"></span>
+        <span class="bar-item" id="weather"></span>
+        <span class="bar-item" id="brand-end">GENIUS TV</span>
+    </div>
+</div>
+
+<!-- Exit button (top-right, always visible on hover) -->
+<div id="exit-btn" onclick="window.gtv.quit()">✕</div>
+
+<!-- Voice activation overlay (hidden until wake) -->
+<div id="voice-overlay">
+    <div id="voice-pulse"></div>
+    <div id="voice-text">Listening…</div>
+</div>
+
+<script src="js/gtv.js"></script>
+</body>
+</html>

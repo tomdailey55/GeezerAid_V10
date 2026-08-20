@@ -1,0 +1,230 @@
+/* ============================================================
+   Genius TV — Chrome Ambient Display
+   Full-bleed art, clock, weather, voice UI. No Qt.
+   ============================================================ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #050506;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #fff;
+    cursor: none;
+}
+
+/* Show cursor on hover for exit button */
+body:hover #exit-btn {
+    opacity: 0.7;
+}
+
+/* ---- Art backdrop ---- */
+#art-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+}
+
+#art-current, #art-next {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: opacity 2s ease-in-out;
+}
+
+#art-next {
+    opacity: 0;
+}
+
+#art-dim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+}
+
+/* ---- Voice state (top-center) ---- */
+#voice-state {
+    position: fixed;
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    text-align: center;
+}
+
+#state-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #4a4a55;
+    margin: 0 auto 6px;
+    transition: background 0.3s, opacity 1.2s;
+    opacity: 0;
+}
+
+#voice-state.listening #state-dot { background: #4a7ab0; opacity: 1; }
+#voice-state.thinking #state-dot { background: #6a6a80; opacity: 1; }
+#voice-state.reply #state-dot { background: #8a6ab0; opacity: 1; }
+#voice-state.playing #state-dot { background: #b06a80; opacity: 1; }
+
+#caption {
+    font-size: 22px;
+    font-weight: 300;
+    color: rgba(255, 255, 255, 0.7);
+    min-height: 26px;
+}
+
+/* ---- Transcript ---- */
+#transcript {
+    position: fixed;
+    top: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    font-size: 20px;
+    font-weight: 300;
+    color: rgba(255, 255, 255, 0.5);
+    max-width: 60%;
+    text-align: center;
+    word-wrap: break-word;
+}
+
+/* ---- Suggestion ---- */
+#suggestion {
+    position: fixed;
+    top: 120px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    font-size: 20px;
+    font-weight: 300;
+    color: rgba(255, 255, 255, 0.35);
+}
+
+/* ---- Inline bar ---- */
+#info-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    height: 52px;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    transition: top 0.5s, bottom 0.5s;
+}
+
+#info-bar.bottom {
+    bottom: 0;
+    top: auto;
+}
+
+#info-bar.top {
+    top: 0;
+    bottom: auto;
+}
+
+#bar-row {
+    display: flex;
+    align-items: center;
+    gap: 240px;
+    padding: 0 30px;
+    width: 100%;
+}
+
+.bar-item {
+    font-size: 18px;
+    font-weight: 300;
+    color: rgba(255, 255, 255, 0.6);
+    white-space: nowrap;
+}
+
+#art-title {
+    font-style: italic;
+}
+
+#clock {
+    font-size: 20px;
+    font-weight: 300;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+#brand-start, #brand-end {
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.35);
+}
+
+/* ---- Exit button ---- */
+#exit-btn {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    color: #fff;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10001;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+#exit-btn:hover {
+    opacity: 1 !important;
+    background: rgba(180, 0, 0, 0.8);
+}
+
+/* ---- Voice overlay ---- */
+#voice-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+}
+
+#voice-overlay.active {
+    opacity: 1;
+}
+
+#voice-pulse {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.5);
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(0.8); opacity: 1; }
+    100% { transform: scale(1.5); opacity: 0; }
+}
+
+#voice-text {
+    margin-top: 20px;
+    font-size: 24px;
+    font-weight: 300;
+    color: rgba(255, 255, 255, 0.8);
+}
