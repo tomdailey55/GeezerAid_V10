@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Genius TV Remote</title>
+<style>
+  :root {
+    --bg: #0d0d0f;
+    --card: #1a1a1f;
+    --accent: #3b82f6;
+    --accent2: #7c5cff;
+    --good: #22c55e;
+    --danger: #ef4444;
+    --text: #f4f4f5;
+    --muted: #9ca3af;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg, var(--card));
+    color: var(--muted);
+    font-family: -apple-system, "SF Pro", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    user-select: none;
+  }
+  .remote {
+    width: 100%;
+    max-width: 720px;
+    background: var(--bg, #101014);
+    border-radius: 24px;
+    padding: 24px;
+    border: 1px solid #2a2a30;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  h1 {
+    text-align: center;
+    font-size: 1.4rem;
+    letter-spacing: 0.5px;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+  .sub {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 24px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  button {
+    border: none;
+    border-radius: 18px;
+    padding: 28px 12px;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(145deg, var(--card), #232329);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+    transition: transform 0.08s ease, filter 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    touch-action: manipulation;
+  }
+  button .icon { font-size: 1.8rem; line-height: 1; }
+  button .lbl { font-size: 0.95rem; font-weight: 600; opacity: 0.9; }
+  button:active { transform: scale(0.96); filter: brightness(1.25); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .accent { background: linear-gradient(145deg, var(--accent), #1d4ed8); }
+  .good { background: linear-gradient(145deg, var(--good), #15803d); }
+  .warn { background: linear-gradient(145deg, #f59e0b, #b45309); }
+  .mute.on { background: linear-gradient(145deg, var(--danger), #991b1b); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .back {
+    width: 100%;
+    margin-top: 16px;
+    background: linear-gradient(145deg, var(--accent2), #4f46e5);
+  }
+  .status {
+    margin-top: 14px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--good);
+    min-height: 18px;
+  }
+  .status.err { color: var(--danger); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>GENIUS TV</h1>
+  <div class="sub">Remote control</div>
+
+  <div class="grid">
+    <button class="accent" data-act="next"><span class="icon">⏭</span><span class="lbl">Next Art</span></button>
+    <button class="accent" data-act="prev"><span class="icon">⏮</span><span class="lbl">Previous Art</span></button>
+    <button class="good" data-act="wake"><span class="icon">🗣</span><span class="lbl">Talk to Jeeves</span></button>
+    <button class="warn mute" data-act="mute"><span class="icon">🔇</span><span class="lbl">Mute</span></button>
+  </div>
+
+  <div class="row">
+    <button class="warn" data-act="volume_down"><span class="icon">🔉</span><span class="lbl">Volume −</span></button>
+    <button class="warn" data-act="volume_up"><span class="icon">🔊</span><span class="lbl">Volume +</span></button>
+  </div>
+
+  <button class="back" data-act="back"><span class="icon">🖼</span><span class="lbl">Back to Art</span></button>
+
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+const statusEl = document.getElementById('status');
+let muted = false;
+
+async function send(action) {
+  statusEl.className = 'status';
+  statusEl.textContent = 'sending…';
+  try {
+    const r = await fetch('/api/remote?action=' + encodeURIComponent(action));
+    const j = await r.json();
+    if (j && j.ok) {
+      statusEl.textContent = 'ok — ' + action;
+    } else {
+      statusEl.textContent = 'error: ' + ((j && j.error) || 'unknown');
+      statusEl.classList.add('err');
+    }
+    if (action === 'mute') {
+      muted = !muted;
+      const b = document.querySelector('.mute');
+      b.classList.toggle('on', muted);
+      b.querySelector('.lbl').textContent = muted ? 'Unmute' : 'Mute';
+      b.querySelector('.icon').textContent = muted ? '🔈' : '🔇';
+    }
+  } catch (e) {
+    statusEl.textContent = 'failed to reach server';
+    statusEl.classList.add('err');
+  }
+}
+
+// Back to art: fullscreen the ambient page.
+async function backToArt() {
+  try {
+    await fetch('/api/remote?action=wake', { method: 'POST' });
+  } catch (e) {}
+  // Navigate this tab back to the ambient art page.
+  window.location.href = '/index.html';
+}
+
+document.querySelectorAll('button[data-act]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const act = btn.dataset.act;
+    if (act === 'back') { backToArt(); return; }
+    send(act);
+  });
+});
+</script>
+</body>
+</html>

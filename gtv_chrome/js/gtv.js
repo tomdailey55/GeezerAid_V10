@@ -104,6 +104,14 @@ window.gtv = (() => {
         return ART[artIndex];
     }
 
+    function prevArt() {
+        if (artOrder.length !== ART.length) shuffleArtOrder();
+        artPos--;
+        if (artPos < 0) artPos = artOrder.length - 1;
+        artIndex = artOrder[artPos];
+        return ART[artIndex];
+    }
+
     function updateClock() {
         const now = new Date();
         const h = now.getHours();
@@ -146,8 +154,8 @@ window.gtv = (() => {
         end.style.display = barLayout !== 0 ? '' : 'none';
     }
 
-    function rotateArt() {
-        const next = nextArt();
+    function rotateArt(dir) {
+        const next = dir === 'prev' ? prevArt() : nextArt();
         const title = ART_TITLES[next] || next.replace(/_/g, ' ');
         document.getElementById('art-title').textContent = title;
         showBar();  // brief bar visibility on each painting change
@@ -166,6 +174,22 @@ window.gtv = (() => {
             }, 2000);
         };
     }
+
+    // Listen for remote commands broadcast by the :8771 server so a tablet
+    // (or future big TV) can advance art on ALL displays at once.
+    function listenForRemote() {
+        const es = new EventSource('/api/events');
+        es.onmessage = (ev) => {
+            try {
+                const cmd = JSON.parse(ev.data);
+                if (cmd && cmd.type === 'command') {
+                    if (cmd.action === 'next' || cmd.action === 'prev') rotateArt(cmd.action);
+                    if (cmd.action === 'wake') setVoiceState('listening');
+                }
+            } catch (e) { /* ignore malformed */ }
+        };
+    }
+
 
     function showBar() {
         const bar = document.getElementById('info-bar');
@@ -212,16 +236,51 @@ window.gtv = (() => {
     function quit() {
         // Try to close via window.close()
         window.close();
-        
-        // If that doesn't work (Chrome kiosk mode), navigate to blank
+
+        // If that doesn't work (Chrome kiosk mode), go to the remote control
+        // page instead of a blank screen, so the user is never stranded.
         setTimeout(() => {
-            window.location.href = 'about:blank';
+            window.location.href = '/remote.html';
         }, 500);
-        
+
         // Also try to signal the server
         try {
             fetch('/api/quit', {method: 'POST'});
         } catch (e) {}
+    }
+
+    // ---- Fullscreen (Android/Chrome: requires a user gesture) ----
+    let fullscreenArmed = false;
+
+    function enterFullscreen() {
+        const el = document.documentElement;
+        const req = (el.requestFullscreen ||
+                     el.webkitRequestFullscreen ||
+                     el.webkitEnterFullscreen ||
+                     function () {});
+        try { req.call(el); } catch (e) {}
+    }
+
+    function onFirstTap() {
+        // Remove the one-shot gesture listeners.
+        document.removeEventListener('pointerdown', onFirstTap);
+        document.removeEventListener('touchstart', onFirstTap);
+        // If we're not already fullscreen, enter it now (gesture satisfies Chrome).
+        if (!document.fullscreenElement) enterFullscreen();
+    }
+
+    function initFullscreen() {
+        if (document.fullscreenEnabled) {
+            // Chrome on Android will ignore a fullscreen request without a user
+            // gesture, so arm on the first touch/tap as well as trying on load.
+            document.addEventListener('fullscreenchange', () => {
+                fullscreenArmed = true;
+            });
+            document.addEventListener('pointerdown', onFirstTap);
+            document.addEventListener('touchstart', onFirstTap);
+            // Best-effort immediate enter (works on desktop + some tablets).
+            enterFullscreen();
+        }
     }
 
     function init() {
@@ -264,11 +323,17 @@ window.gtv = (() => {
         // Prevent right-click menu
         document.addEventListener('contextmenu', (e) => e.preventDefault());
 
+        // Fullscreen: hide browser chrome for a clean ambient display.
+        initFullscreen();
+
+        // Remote-control plane: receive broadcast commands from :8771 server.
+        listenForRemote();
+
         // Simulate wake word (for testing)
         console.log('Genius TV Chrome initialized');
     }
 
-    return { init, quit, setVoiceState, setTranscript, showVoiceOverlay, hideVoiceOverlay };
+    return { init, quit, setVoiceState, setTranscript, showVoiceOverlay, hideVoiceOverlay, enterFullscreen };
 })();
 
 window.addEventListener('DOMContentLoaded', window.gtv.init);
