@@ -40,3 +40,6 @@ htmlcov/
 *.sync-conflict-*
 conversations.jsonl
 conversations.sync-conflict-*.jsonl
+
+# Local deployment: art is symlinked from ~/genius-tv/art (machine-specific)
+gtv_chrome/art
