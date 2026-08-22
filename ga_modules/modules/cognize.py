@@ -21,6 +21,8 @@ class LLMResponse:
     text: str
     source: str  # "local" or "cloud"
     confidence: float = 0.5
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     
     def __repr__(self):
         return f"LLMResponse({self.source}: {self.text[:50]}...)"
@@ -140,7 +142,14 @@ class CognizeModule:
             with urllib.request.urlopen(req, timeout=60) as r:
                 data = json.loads(r.read())
                 text = data["choices"][0]["message"]["content"]
-                return LLMResponse(text=text, source="local", confidence=0.8)
+                usage = data.get("usage") or {}
+                return LLMResponse(
+                    text=text,
+                    source="local",
+                    confidence=0.8,
+                    prompt_tokens=usage.get("prompt_tokens", 0),
+                    completion_tokens=usage.get("completion_tokens", 0),
+                )
                 
         except Exception as e:
             logger.warning(f"Local LLM failed: {e}")
@@ -176,7 +185,14 @@ class CognizeModule:
             with urllib.request.urlopen(req, timeout=120) as r:
                 data = json.loads(r.read())
                 text = data["choices"][0]["message"]["content"]
-                return LLMResponse(text=text, source="cloud", confidence=0.9)
+                usage = data.get("usage") or {}
+                return LLMResponse(
+                    text=text,
+                    source="cloud",
+                    confidence=0.9,
+                    prompt_tokens=usage.get("prompt_tokens", 0),
+                    completion_tokens=usage.get("completion_tokens", 0),
+                )
                 
         except Exception as e:
             logger.warning(f"Cloud LLM failed: {e}")

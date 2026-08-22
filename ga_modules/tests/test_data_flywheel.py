@@ -87,20 +87,16 @@ class TestCostTracker:
         self.logger = InteractionLogger(self.db)
         self.cost = CostTracker(self.db)
         
-        # Add interactions
+        # Add interactions with REAL token counts
         for _ in range(10):
             self.logger.log(Interaction(
-                command="local",
-                model_source="local_llm",
-                result_text="ok",
-                timestamp=time.time()
+                command="local", model_source="local_llm", result_text="ok",
+                timestamp=time.time(), prompt_tokens=100, completion_tokens=50, model="local"
             ))
         for _ in range(5):
             self.logger.log(Interaction(
-                command="cloud",
-                model_source="cloud_llm",
-                result_text="ok",
-                timestamp=time.time()
+                command="cloud", model_source="cloud_llm", result_text="ok",
+                timestamp=time.time(), prompt_tokens=200, completion_tokens=80, model="cloud"
             ))
 
     def test_cost_summary(self):
@@ -108,4 +104,8 @@ class TestCostTracker:
         assert summary["total_interactions"] == 15
         assert summary["by_source"]["local_llm"] == 10
         assert summary["by_source"]["cloud_llm"] == 5
+        # Real token accounting: 10 local (0 cost) + 5 cloud (280 tokens each)
+        assert summary["local_tokens"] == 10 * 150   # 100 + 50
+        assert summary["cloud_tokens"] == 5 * 280     # 200 + 80
+        assert summary["cloud_cost_usd"] > 0
         assert summary["savings_usd"] > 0

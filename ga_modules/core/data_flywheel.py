@@ -42,6 +42,9 @@ class Interaction:
     corrected: bool = False    # True if user rephrased/corrected
     correction_text: str = ""  # What they said instead
     latency_ms: float = 0.0
+    prompt_tokens: int = 0    # Real usage from LLM (0 if local/free or unknown)
+    completion_tokens: int = 0
+    model: str = ""            # Model id actually used (e.g. "local/qwen3.5", "cloud/longcat")
     
     def to_dict(self) -> dict:
         return asdict(self)
@@ -71,7 +74,10 @@ class InteractionLogger:
                     room TEXT DEFAULT 'unknown',
                     corrected INTEGER DEFAULT 0,
                     correction_text TEXT DEFAULT '',
-                    latency_ms REAL DEFAULT 0.0
+                    latency_ms REAL DEFAULT 0.0,
+                    prompt_tokens INTEGER DEFAULT 0,
+                    completion_tokens INTEGER DEFAULT 0,
+                    model TEXT DEFAULT ''
                 )
             """)
             conn.execute("""
@@ -83,14 +89,25 @@ class InteractionLogger:
                 ON interactions(model_source)
             """)
             conn.commit()
+            # Migrate existing DBs (add token/model columns if missing)
+            for ddl in [
+                "ALTER TABLE interactions ADD COLUMN prompt_tokens INTEGER DEFAULT 0",
+                "ALTER TABLE interactions ADD COLUMN completion_tokens INTEGER DEFAULT 0",
+                "ALTER TABLE interactions ADD COLUMN model TEXT DEFAULT ''",
+            ]:
+                try:
+                    conn.execute(ddl)
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+            conn.commit()
     
     def log(self, interaction: Interaction):
         """Log a single interaction."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO interactions 
-                (command, model_source, result_text, timestamp, user, room, corrected, correction_text, latency_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (command, model_source, result_text, timestamp, user, room, corrected, correction_text, latency_ms, prompt_tokens, completion_tokens, model)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 interaction.command,
                 interaction.model_source,
@@ -100,7 +117,10 @@ class InteractionLogger:
                 interaction.room,
                 1 if interaction.corrected else 0,
                 interaction.correction_text,
-                interaction.latency_ms
+                interaction.latency_ms,
+                interaction.prompt_tokens,
+                interaction.completion_tokens,
+                interaction.model
             ))
             conn.commit()
         logger.debug(f"Logged interaction: {interaction.command[:50]}... → {interaction.model_source}")
@@ -221,58 +241,72 @@ class EvalDataset:
 
 
 class CostTracker:
-    """Track cloud vs local routing costs."""
-    
-    # Approximate costs per 1K tokens (USD)
-    MODEL_COSTS = {
-        "local_llm": 0.0,          # Free (electricity)
-        "ha_intent": 0.0,          # Free (local)
-        "knowledge": 0.0,          # Free (local)
-        "safety": 0.0,             # Free (local)
-        "cloud_llm": 0.0025,       # LongCat ~$2.5/1M tokens
-        "gpt-4o": 0.005,           # GPT-4o
-        "claude-sonnet": 0.003,    # Claude Sonnet
+    """Track cloud vs local routing costs using REAL token counts."""
+
+    # Cost per 1M tokens (USD) by model id. Keys match the `model` column we
+    # log; anything unknown defaults to cloud. Local/free models cost 0.
+    MODEL_COST_PER_1M = {
+        # Local — free
+        "": 0.0,                 # unknown / non-LLM
+        "local": 0.0,            # local llama.cpp
+        "ha_intent": 0.0,
+        "knowledge": 0.0,
+        "safety": 0.0,
+        # Cloud (Nous / OpenRouter class pricing)
+        "cloud": 0.003,          # ~$3/1M blended fallback
+        "longcat": 0.0025,
+        "gpt-4o": 0.005,
+        "claude-sonnet": 0.003,
+        "deepseek-v4": 0.0005,
     }
-    
-    AVG_TOKENS_PER_INTERACTION = 500  # rough estimate
-    
+    FALLBACK_COST_PER_1M = 0.003
+
     def __init__(self, db_path: Optional[Union[str, Path]] = None):
         if db_path is None:
             db_path = Path.home() / ".geeza" / "interactions.db"
         self.db_path = Path(db_path)
-    
+
     def get_cost_summary(self) -> dict:
-        """Get cost summary."""
+        """Compute cost from logged token counts (not estimates)."""
         with sqlite3.connect(self.db_path) as conn:
-            # Count by source
-            sources = {}
-            for row in conn.execute("SELECT model_source, COUNT(*) FROM interactions GROUP BY model_source"):
-                sources[row[0]] = row[1]
-            
-            total = sum(sources.values())
-            
-            # Calculate costs
-            cloud_cost = 0.0
-            local_count = 0
-            for source, count in sources.items():
-                cost_per = self.MODEL_COSTS.get(source, 0.0025)
-                cloud_cost += count * self.AVG_TOKENS_PER_INTERACTION / 1000 * cost_per
-                if cost_per == 0.0:
-                    local_count += count
-            
-            # Savings: what it would have been if all cloud
-            all_cloud_cost = total * self.AVG_TOKENS_PER_INTERACTION / 1000 * 0.0025
-            savings = all_cloud_cost - cloud_cost
-            
-            return {
-                "total_interactions": total,
-                "by_source": sources,
-                "cloud_cost_usd": round(cloud_cost, 4),
-                "local_count": local_count,
-                "all_cloud_cost_usd": round(all_cloud_cost, 4),
-                "savings_usd": round(savings, 4),
-                "savings_percent": round((savings / all_cloud_cost * 100) if all_cloud_cost > 0 else 0, 1)
-            }
+            rows = conn.execute(
+                "SELECT model_source, prompt_tokens, completion_tokens, model FROM interactions"
+            ).fetchall()
+
+        total_tokens = 0
+        cloud_tokens = 0
+        local_tokens = 0
+        cloud_cost = 0.0
+        by_source = {}
+        for source, pt, ct, model in rows:
+            tokens = (pt or 0) + (ct or 0)
+            total_tokens += tokens
+            by_source[source] = by_source.get(source, 0) + 1
+            # Cost key: use the model column if it names a priced model, else the source.
+            key = model if model in self.MODEL_COST_PER_1M else source
+            cost_per_1m = self.MODEL_COST_PER_1M.get(key, self.FALLBACK_COST_PER_1M)
+            if cost_per_1m > 0:
+                cloud_tokens += tokens
+                cloud_cost += tokens / 1_000_000 * cost_per_1m
+            else:
+                local_tokens += tokens
+
+        total_interactions = sum(by_source.values())
+        # What it WOULD cost if every interaction were cloud at blended rate
+        all_cloud_cost = total_tokens / 1_000_000 * self.FALLBACK_COST_PER_1M
+        savings = all_cloud_cost - cloud_cost
+
+        return {
+            "total_interactions": total_interactions,
+            "total_tokens": total_tokens,
+            "by_source": by_source,
+            "cloud_tokens": cloud_tokens,
+            "local_tokens": local_tokens,
+            "cloud_cost_usd": round(cloud_cost, 6),
+            "all_cloud_cost_usd": round(all_cloud_cost, 6),
+            "savings_usd": round(savings, 6),
+            "savings_percent": round((savings / all_cloud_cost * 100) if all_cloud_cost > 0 else 0, 1)
+        }
 
 
 # ============================================================
@@ -299,7 +333,7 @@ def patch_coordinator(coordinator, db_path: Optional[str] = None):
         interaction = Interaction(
             command=command,
             model_source=response.source if hasattr(response, 'source') else "unknown",
-            response_text=response.text if hasattr(response, 'text') else str(response),
+            result_text=response.text if hasattr(response, 'text') else str(response),
             timestamp=time.time(),
             user=context.get("user", "unknown") if context else "unknown",
             room=context.get("room", "unknown") if context else "unknown",

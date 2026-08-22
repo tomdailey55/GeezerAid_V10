@@ -115,7 +115,13 @@ class Coordinator:
             if response and response.confidence > 0.7:
                 self.routes["local_llm"] += 1
                 self._log_interaction(command, response, context, time.time() - start_time)
-                return Response(response.text, source="local_llm")
+                return Response(
+                    response.text,
+                    source="local_llm",
+                    prompt_tokens=getattr(response, "prompt_tokens", 0),
+                    completion_tokens=getattr(response, "completion_tokens", 0),
+                    model="local",
+                )
 
         # 6. CLOUD LLM BACKUP (complex queries)
         response = self.via_cloud_llm(command, context)
@@ -133,7 +139,10 @@ class Coordinator:
                 timestamp=time.time(),
                 user=context.get("user", "unknown"),
                 room=context.get("room", "unknown"),
-                latency_ms=duration * 1000
+                latency_ms=duration * 1000,
+                prompt_tokens=getattr(response, "prompt_tokens", 0),
+                completion_tokens=getattr(response, "completion_tokens", 0),
+                model=getattr(response, "model", ""),
             )
             self.interaction_logger.log(interaction)
         except Exception as e:
@@ -190,7 +199,13 @@ class Coordinator:
         if "llm" in self.modules and hasattr(self.modules["llm"], "generate_cloud"):
             response = self.modules["llm"].generate_cloud(command, context or {})
             if response:
-                return Response(response.text, source="cloud_llm")
+                return Response(
+                    response.text,
+                    source="cloud_llm",
+                    prompt_tokens=getattr(response, "prompt_tokens", 0),
+                    completion_tokens=getattr(response, "completion_tokens", 0),
+                    model="cloud",
+                )
         
         return Response("I'm not sure how to help with that.", source="error")
 
@@ -227,10 +242,14 @@ class Coordinator:
 class Response:
     """A response from the coordinator."""
 
-    def __init__(self, text: str, summary: str = None, source: str = "unknown"):
+    def __init__(self, text: str, summary: str = None, source: str = "unknown",
+                 prompt_tokens: int = 0, completion_tokens: int = 0, model: str = ""):
         self.text = text
         self.summary = summary or text[:100]
         self.source = source
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.model = model
         self.timestamp = time.time()
 
     def __repr__(self):
