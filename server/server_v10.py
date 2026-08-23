@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GeezerAid V9 Beta Server — fast HTTP facade + Hermes-backed smart path
+GeezerAid V10 Server — fast HTTP facade + Hermes-backed smart path
 HTTP-based. Keyword intent (fast path). Kokoro TTS. Smart path delegates to
 the local Hermes gateway (`hermes serve`) so model selection / fallback /
 memory / tools live in Hermes, not here.
@@ -8,7 +8,7 @@ memory / tools live in Hermes, not here.
 FROZEN CLIENT CONTRACT (iOS/iPad unchanged):
   POST /chat  {text: "..."}  ->  {text: "...", audio: "base64...",
                                     intent, tier, latency_ms}
-  GET  /health              ->  {ok: true, uptime: N, version: "v9"}
+  GET  /health              ->  {ok: true, uptime: N, version: "v10"}
 
 Architecture (see tasks/TASK_SERVER_HERMES_INTEGRATION.md):
   - FAST/HOT path (edge + local 4B voice model): handled in-process, no Hermes.
@@ -2342,7 +2342,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         route = urlparse(self.path).path
         if route == "/health":
             self._json(200, {"ok": True, "uptime": round(time.time() - self.started, 1),
-                             "tts_ready": self.tts._ready, "version": "v9"})
+                             "tts_ready": self.tts._ready, "version": "v10"})
         elif route == "/debug":
             self._json(200, self.debug.snapshot())
         elif route == "/recommendations":
@@ -4026,7 +4026,7 @@ def main():
     # the first frontier query doesn't stall on model download/init. (Phase 3, D)
     # Failures are non-fatal — redact_pii() degrades to passthrough.
     threading.Thread(target=_load_privacy_filter, daemon=True).start()
-    p = argparse.ArgumentParser(description="GeezerAid V9 Beta Server")
+    p = argparse.ArgumentParser(description="GeezerAid V10 Server")
     p.add_argument("--port", type=int, default=PORT, help=f"Port (default {PORT})")
     p.add_argument("--host", default=HOST, help=f"Host (default {HOST})")
     args = p.parse_args()
@@ -4041,7 +4041,7 @@ def main():
             print(f"[FIX] Using port {alt}"); args.port = alt
         else:
             print("[ERROR] No free port found."); sys.exit(1)
-    print(f"\nGeezerAid V9 Beta Server\nPort: {args.port} | TTS: {TTS_VOICE} | Hermes: {shutil.which('hermes') or 'NOT IN PATH'}\n")
+    print(f"\nGeezerAid V10 Server\nPort: {args.port} | TTS: {TTS_VOICE} | Hermes: {shutil.which('hermes') or 'NOT IN PATH'}\n")
     srv = ThreadingHTTPServer((args.host, args.port), ChatHandler)
     print(f"[READY] http://{args.host}:{args.port}/health")
     try:
