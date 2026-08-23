@@ -226,7 +226,48 @@ class EvalDataset:
         
         logger.info(f"Exported {len(examples)} Alpaca examples to {output_path}")
         return str(output_path)
-    
+
+    def export_messages(self, output_path: Optional[str] = None, since: float = 0) -> str:
+        """Export in chat-format (messages arrays) for standard-PEFT training.
+
+        Each example is {messages: [system, user, assistant]}, ready for the
+        tokenizer's apply_chat_template. This is the format the proven GA
+        finetune_standard.py pipeline consumes.
+        """
+        if output_path is None:
+            output_path = Path.home() / ".geeza" / "eval_messages.jsonl"
+        output_path = Path(output_path)
+
+        system_prompt = (
+            "You are Jeeves, a refined British valet assisting the household. "
+            "Respond with a JSON object containing 'intent', 'response' (brief, "
+            "max 2 sentences), and 'tool_calls' (array, empty if none)."
+        )
+
+        with sqlite3.connect(self.logger.db_path) as conn:
+            rows = conn.execute("""
+                SELECT command, result_text
+                FROM interactions
+                WHERE timestamp > ? AND corrected = 0 AND result_text != ''
+                ORDER BY timestamp
+            """, (since,)).fetchall()
+
+        count = 0
+        with open(output_path, 'w') as f:
+            for command, result in rows:
+                example = {
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": command},
+                        {"role": "assistant", "content": result},
+                    ]
+                }
+                f.write(json.dumps(example, ensure_ascii=False) + "\n")
+                count += 1
+
+        logger.info(f"Exported {count} chat examples to {output_path}")
+        return str(output_path)
+
     def get_corrections(self, since: float = 0) -> list:
         """Get all corrections (user rephrased/corrected) — gold for fine-tuning."""
         with sqlite3.connect(self.logger.db_path) as conn:

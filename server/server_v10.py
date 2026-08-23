@@ -300,13 +300,14 @@ class KokoroTTS:
             print(f"[TTS] error: {e}")
             self.pipe = None
 
-    def generate(self, text: str) -> Optional[bytes]:
+    def generate(self, text: str, voice: Optional[str] = None) -> Optional[bytes]:
         if not self.pipe:
             return None
         try:
             import numpy as np, soundfile as sf, io
+            use_voice = voice or self.voice
             chunks = []
-            for _, _, audio in self.pipe(text, voice=self.voice, speed=self.speed):
+            for _, _, audio in self.pipe(text, voice=use_voice, speed=self.speed):
                 chunks.append(audio)
             if not chunks:
                 return None
@@ -753,7 +754,7 @@ class ElderBrainBridge:
             if not index_path.exists():
                 # Build on demand
                 try:
-                    sys.path.insert(0, str(Path.home() / "Public/GA-V9/tools"))
+                    sys.path.insert(0, str(Path.home() / "Public/GeezerAid_V10/tools"))
                     from recipe_indexer import build_index
                     build_index()
                 except Exception as e:
@@ -2635,6 +2636,41 @@ class ChatHandler(BaseHTTPRequestHandler):
         room = data.get("room", "")
         user = data.get("user", "tom")
         source = data.get("source", "")
+        # Stable device identity: prefer the app's X-Device-Id (a per-device UUID
+        # that survives IP/DHCP/Tailscale rotation). Fall back to IP for clients
+        # that don't send it. (Phase 3, fix K)
+        device_id = self.headers.get("X-Device-Id") or \
+            self.headers.get("X-Forwarded-For", self.client_address[0])
+        # ── Persona resolution: wake word = identity ──
+        # "Hey Jeeves" -> Tom, "Hey Circe" -> Andrea. Sticky per device until a
+        # different "Hey <name>" arrives. The persona sets the user + TTS voice.
+        try:
+            sys.path.insert(0, os.path.expanduser("~/Public/GeezerAid_V10/tools"))
+            from persona_registry import get_session
+            get_session().resolve(device_id, text)
+            pcfg = get_session().get(device_id)
+            user = pcfg["user"].lower()
+            # Set the persona title on the Apple tool modules so canned
+            # responses use "dear" (Andrea) instead of "sir" (Tom).
+            try:
+                from apple_tools import set_title as _at_set_title
+                _at_set_title(pcfg.get("title", "sir"))
+            except Exception:
+                pass
+            try:
+                from apple_mail import set_title as _am_set_title
+                _am_set_title(pcfg.get("title", "sir"))
+            except Exception:
+                pass
+            # Strip the wake word from the text so it isn't classified as a command
+            for ww in pcfg["wake_words"]:
+                if text.lower().strip().startswith(ww):
+                    text = text[len(ww):].strip()
+                    break
+            # Remember the persona's TTS voice for this request
+            self._persona_voice = pcfg.get("tts_voice")
+        except Exception:
+            self._persona_voice = None
         # Store for logging in _respond
         self._last_room = room
         self._last_user = user
@@ -2643,11 +2679,6 @@ class ChatHandler(BaseHTTPRequestHandler):
         ocr_addition = data.get("_ocr_context_addition", "")
         if ocr_addition:
             text = text + ocr_addition
-        # Stable device identity: prefer the app's X-Device-Id (a per-device UUID
-        # that survives IP/DHCP/Tailscale rotation). Fall back to IP for clients
-        # that don't send it. (Phase 3, fix K)
-        device_id = self.headers.get("X-Device-Id") or \
-            self.headers.get("X-Forwarded-For", self.client_address[0])
         client_ip = device_id
         start = time.time()
         # Access log — write directly to a file (launchd stdout isn't flushed
@@ -2996,7 +3027,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         #    Uses the standard Cast protocol — no ADB/developer mode needed.
         if intent == "cast":
             try:
-                sys.path.insert(0, os.path.expanduser("~/Public/GA-V9/tools"))
+                sys.path.insert(0, os.path.expanduser("~/Public/GeezerAid_V10/tools"))
                 from cast_tools import cast_action
                 response_text = cast_action(text)
                 self._respond(text, intent, "server", response_text, start)
@@ -3010,7 +3041,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         # ── LG webOS TV control (full control: power, inputs, apps) ──
         if intent == "lg_tv":
             try:
-                sys.path.insert(0, os.path.expanduser("~/Public/GA-V9/tools"))
+                sys.path.insert(0, os.path.expanduser("~/Public/GeezerAid_V10/tools"))
                 from lg_tools import lg_action
                 response_text = lg_action(text)
                 self._respond(text, intent, "server", response_text, start)
@@ -3025,7 +3056,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         #    Screencap + OCR, power off, reliable app launch. Requires dev mode.
         if intent == "tv_adb":
             try:
-                sys.path.insert(0, os.path.expanduser("~/Public/GA-V9/tools"))
+                sys.path.insert(0, os.path.expanduser("~/Public/GeezerAid_V10/tools"))
                 from tv_adb import tv_action
                 response_text = tv_action(text)
                 self._respond(text, intent, "server", response_text, start)
@@ -3056,7 +3087,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         #    WDA test running on the device + `remote tunneld` up.
         if intent == "ipad":
             try:
-                sys.path.insert(0, os.path.expanduser("~/Public/GA-V9/tools"))
+                sys.path.insert(0, os.path.expanduser("~/Public/GeezerAid_V10/tools"))
                 from wda_control import wda_action
                 response_text = wda_action(text)
                 self._respond(text, intent, "server", response_text, start)
@@ -3072,7 +3103,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         #    sync to the iPad/iPhone via iCloud.
         if intent in ("reminder", "calendar", "notes", "message", "contacts", "call", "email", "chat"):
             try:
-                sys.path.insert(0, os.path.expanduser("~/Public/GA-V9/tools"))
+                sys.path.insert(0, os.path.expanduser("~/Public/GeezerAid_V10/tools"))
                 from apple_tools import apple_action, message_send
                 from apple_mail import mail_action, mail_send as apple_mail_send
 
@@ -3184,7 +3215,7 @@ class ChatHandler(BaseHTTPRequestHandler):
                 # NOTE: os/sys already imported at module level — do NOT re-import
                 # locally here; a local `import os` makes `os` function-local and
                 # breaks os.getenv calls elsewhere in _handle_chat.
-                sys.path.insert(0, os.path.expanduser("~/Public/GA-V9/tools"))
+                sys.path.insert(0, os.path.expanduser("~/Public/GeezerAid_V10/tools"))
                 from suggestion_engine import SuggestionEngine
                 # Per-user recommendations: Andrea gets her own viewing affinity
                 engine = SuggestionEngine(owner=user or "tom")
@@ -3498,7 +3529,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         if context == "leisure" and not appointment:
             try:
                 import sys
-                sys.path.insert(0, os.path.expanduser("~/Public/GA-V9/tools"))
+                sys.path.insert(0, os.path.expanduser("~/Public/GeezerAid_V10/tools"))
                 from suggestion_engine import SuggestionEngine
                 engine = SuggestionEngine(owner=user or "tom")
                 suggestion_text, suggestion_actions = engine.get_suggestions(
@@ -3537,7 +3568,9 @@ class ChatHandler(BaseHTTPRequestHandler):
     def _respond(self, text, intent, tier, response_text, start, video_url: str = None):
         audio_b64 = None
         if self.tts._ready:
-            audio = self.tts.generate(response_text)
+            # Use the persona's TTS voice (set in _handle_chat) if available
+            persona_voice = getattr(self, "_persona_voice", None)
+            audio = self.tts.generate(response_text, voice=persona_voice)
             if audio:
                 audio_b64 = base64.b64encode(audio).decode()
         latency_ms = (time.time() - start) * 1000
@@ -3922,7 +3955,7 @@ class ChatHandler(BaseHTTPRequestHandler):
             from urllib.parse import urlparse, parse_qs
             qs = parse_qs(urlparse(self.path).query)
             owner = (qs.get("user") or ["tom"])[0]
-            sys.path.insert(0, os.path.expanduser("~/Public/GA-V9/tools"))
+            sys.path.insert(0, os.path.expanduser("~/Public/GeezerAid_V10/tools"))
             from suggestion_engine import SuggestionEngine
             engine = SuggestionEngine(owner=owner)
             candidates = engine.candidates.get("candidates", [])

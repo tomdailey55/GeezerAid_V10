@@ -53,6 +53,8 @@ def cmd_export(args):
 
     jsonl = eval_ds.export_jsonl(str(out / "flywheel.jsonl"), since=since)
     alpaca = eval_ds.export_alpaca(str(out / "flywheel_alpaca.json"), since=since)
+    # Chat-format (messages arrays) — the format the proven finetune_standard.py needs
+    messages = eval_ds.export_messages(str(out / "flywheel_messages.jsonl"), since=since)
 
     # Also write corrections (gold training signal)
     corrections = eval_ds.get_corrections(since=since)
@@ -64,6 +66,7 @@ def cmd_export(args):
     print(json.dumps({
         "jsonl": jsonl,
         "alpaca": alpaca,
+        "messages": messages,
         "corrections": str(corr_path),
         "corrections_count": len(corrections),
     }, indent=2))
