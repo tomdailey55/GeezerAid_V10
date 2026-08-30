@@ -7,8 +7,10 @@
 <link rel="stylesheet" href="css/gtv.css">
 </head>
 <body>
-<!-- Full-bleed art backdrop -->
-<div id="art-backdrop">
+<!-- Power-remote mode: art OFF by default. ?power=full restores the full
+     art display (for powered/ambient screens). Remote battery devices load
+     the plain page: clock/date/weather + PTT only, near-black screen. -->
+<div id="art-backdrop" data-enabled="false">
     <img id="art-current" src="" alt="">
     <img id="art-next" src="" alt="">
     <div id="art-dim"></div>
@@ -38,7 +40,7 @@
     </div>
 </div>
 
-<!-- Exit button (top-right, always visible on hover) -->
+<!-- Exit button (top-right, revealed on tap) -->
 <div id="exit-btn" onclick="window.gtv.quit()">✕</div>
 
 <!-- Voice activation overlay (hidden until wake) -->
@@ -47,6 +49,6 @@
     <div id="voice-text">Listening…</div>
 </div>
 
-<script src="js/gtv.js?v=8"></script>
+<script src="js/gtv.js?v=10"></script>
 </body>
 </html>

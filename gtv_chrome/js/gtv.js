@@ -344,10 +344,26 @@ window.gtv = (() => {
     // (or future big TV) can advance art on ALL displays at once.
     function listenForRemote() {
         const es = new EventSource('/api/events');
+        // Wake the remote's screen when voice activity happens (power-remote
+        // mode lets the display sleep; PTT/replies should be visible anyway).
+        let wakeLock = null;
+        async function wakeScreen() {
+            try {
+                if ('wakeLock' in navigator) {
+                    if (!wakeLock || wakeLock.released) {
+                        wakeLock = await navigator.wakeLock.request('screen');
+                        wakeLock.addEventListener('release', () => { wakeLock = null; });
+                    }
+                    // Hold it only briefly: enough to show the interaction
+                    setTimeout(() => { try { wakeLock && wakeLock.release(); } catch (e) {} }, 20000);
+                }
+            } catch (e) { /* wake lock optional (needs prior user gesture) */ }
+        }
         es.onmessage = (ev) => {
             try {
                 const cmd = JSON.parse(ev.data);
                 if (cmd && cmd.type === 'command') {
+                    if (cmd.action === 'voice_state' || cmd.action === 'voice_reply') wakeScreen();
                     if (cmd.action === 'next' || cmd.action === 'prev') rotateArt(cmd.action);
                     if (cmd.action === 'wake') setVoiceState('listening');
                     if (cmd.action === 'voice_state') {
@@ -627,10 +643,17 @@ window.gtv = (() => {
     }
 
     function init() {
-        // Set initial art
-        const first = ART[0];
-        document.getElementById('art-current').src = `art/${first}.jpg`;
-        document.getElementById('art-title').textContent = ART_TITLES[first] || first;
+        // POWER MODE: battery-driven remotes (tablets) can't run full-bleed
+        // artwork always-on — the crossfades + large JPEG decodes drain the
+        // battery fast. Default = power-remote: screen near-black, no art
+        // network loads, no 30s rotation; keep clock/weather/PTT. Powered
+        // ambient screens (big TV, wall displays) load ?power=full for art.
+        const powerFull = new URLSearchParams(location.search).get('power') === 'full';
+        document.getElementById('art-backdrop').dataset.enabled = powerFull ? 'true' : 'false';
+
+        // Clock every 10s in power mode (1s updates wake the GPU constantly);
+        // clock text is HH:MM anyway in the bar, seconds hidden there.
+        const clockMs = powerFull ? 1000 : 10000;
 
         // Initialize GENIUS TV brand visibility (start shown, end hidden)
         document.getElementById('brand-start').style.display = '';
@@ -638,18 +661,27 @@ window.gtv = (() => {
 
         // Timers
         updateClock();
-        setInterval(updateClock, 1000);
+        setInterval(updateClock, clockMs);
 
         updateWeather();
         setInterval(updateWeather, 600000);
 
-        rotateArt();
-        setInterval(rotateArt, 30000);
+        if (powerFull) {
+            const first = ART[0];
+            document.getElementById('art-current').src = `art/${first}.jpg`;
+            document.getElementById('art-title').textContent = ART_TITLES[first] || first;
+            rotateArt();
+            setInterval(rotateArt, 30000);
+        } else {
+            // Power-remote: no art title, dark backdrop via CSS class
+            document.body.classList.add('power-remote');
+            setInterval(permuteBar, 600000);
+        }
 
-        migrateBar();
-        setInterval(migrateBar, 300000);
-
-        setInterval(permuteBar, 240000);
+        if (powerFull) {
+            migrateBar();
+            setInterval(migrateBar, 300000);
+        }
 
         // Mouse cursor management
         document.addEventListener('mousemove', showCursor);

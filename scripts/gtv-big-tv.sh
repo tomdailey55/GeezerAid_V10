@@ -8,7 +8,7 @@
 set -uo pipefail
 
 PROFILE="${GTV_BIG_PROFILE:-$HOME/.config/gtv-big}"
-URL="${GTV_BIG_URL:-http://127.0.0.1:8771/index.html}"
+URL="${GTV_BIG_URL:-http://127.0.0.1:8771/index.html?power=full}"
 
 # --- living-room legibility: 4K panel -> scale up CSS px (from gtv-dashboard.sh)
 detect_scale() {

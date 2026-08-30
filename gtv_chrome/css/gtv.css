@@ -229,6 +229,29 @@ body:hover #exit-btn {
     color: rgba(255, 255, 255, 0.8);
 }
 
+/* ---- Power-remote mode (battery devices) ---- */
+/* Near-black background, no art decode, dimmed bar. OLED/LED friendly:
+   the fewer lit pixels, the less battery the remote burns. */
+body.power-remote {
+    background: #000;
+}
+
+body.power-remote #art-backdrop {
+    display: none;
+}
+
+body.power-remote #info-bar {
+    background: rgba(0, 0, 0, 0.0);
+}
+
+body.power-remote #bar-row {
+    opacity: 0.55;
+}
+
+body.power-remote #art-title {
+    display: none;
+}
+
 /* ---- Push-to-talk mic button (device-mic clients) ---- */
 /* Hidden by default (burn-in: static bright elements on OLED/tablet panels);
    revealed together with the exit X by a single tap, faded after 4s idle. */
