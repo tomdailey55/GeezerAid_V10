@@ -228,3 +228,41 @@ body:hover #exit-btn {
     font-weight: 300;
     color: rgba(255, 255, 255, 0.8);
 }
+
+/* ---- Push-to-talk mic button (device-mic clients) ---- */
+/* Hidden by default (burn-in: static bright elements on OLED/tablet panels);
+   revealed together with the exit X by a single tap, faded after 4s idle. */
+#ptt-btn {
+    position: fixed;
+    right: 28px;
+    bottom: 72px;                  /* above the 52px bottom info bar */
+    z-index: 110;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    background: rgba(20, 20, 20, 0.55);
+    color: rgba(255, 255, 255, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    touch-action: none;            /* hold = record; no scroll/zoom interference */
+    -webkit-user-select: none;
+    user-select: none;
+    opacity: 0;
+    pointer-events: none;          /* invisible = untouchable */
+    transition: background 0.2s, border-color 0.2s, opacity 0.3s;
+}
+
+#ptt-btn.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+#ptt-btn.recording {
+    opacity: 1;
+    pointer-events: auto;
+    background: rgba(180, 0, 0, 0.75);
+    border-color: rgba(255, 255, 255, 0.9);
+}

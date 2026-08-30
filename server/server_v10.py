@@ -2715,7 +2715,16 @@ class ChatHandler(BaseHTTPRequestHandler):
                 is_smalltalk = any(p in text_lower for p in non_location_phrases)
                 is_explicit_followup = text_lower.startswith(("how about", "what about", "and "))
                 is_bare_location = re.match(r"^[a-z\s]+$", text_lower) and len(text_lower.split()) <= 4
-                if is_explicit_followup or (is_bare_location and not is_question and not is_smalltalk):
+                # Sentence-starter pronouns/verbs: a trailing fragment of speech
+                # ("i think we need") is NOT a location follow-up — send it to
+                # the LLM chat path instead of forcing weather.
+                sentence_starters = ("i", "we", "you", "he", "she", "they", "it",
+                                     "let", "lets", "can", "will", "would",
+                                     "should", "do", "does", "did", "is", "are",
+                                     "was", "were", "my", "the", "this", "that",
+                                     "there", "then", "so", "but", "well", "hey")
+                starts_with_starter = text_lower.split()[0] in sentence_starters if text_lower.split() else True
+                if is_explicit_followup or (is_bare_location and not is_question and not is_smalltalk and not starts_with_starter):
                     intent = "weather"
                     tier = "cloud"
                     print(f"[chat] weather follow-up detected: '{text}' -> forcing intent=weather")

@@ -27,6 +27,9 @@ export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 unset DISPLAY
+# Hardware video decode via VA-API (Radeon 8060S / radeonsi). Without this Chrome
+# falls back to software decode -> poor quality vs the TV's native app.
+export LIBVA_DRIVER_NAME="${LIBVA_DRIVER_NAME:-radeonsi}"
 
 case "${1:-show}" in
   show)
@@ -40,9 +43,13 @@ case "${1:-show}" in
       --disable-features=TranslateUI \
       --autoplay-policy=no-user-gesture-required \
       --force-device-scale-factor="$SCALE" \
+      --enable-features=VaapiVideoDecoder,VaapiVideoEncoder \
+      --use-gl=angle --use-angle=gl \
+      --enable-gpu-rasterization \
+      --ignore-gpu-blocklist \
       --kiosk --app="$URL" \
       >/tmp/gtv-big-tv.log 2>&1 &
-    echo "big TV ambient shown: $URL (scale $SCALE)"
+    echo "big TV ambient shown: $URL (scale $SCALE, VA-API hw decode)"
     ;;
   close)
     pkill -f 'user-data-dir=.*gtv-big' 2>/dev/null || true

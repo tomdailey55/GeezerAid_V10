@@ -35,6 +35,7 @@ from pathlib import Path
 
 GTV_DIR = Path(__file__).resolve().parent.parent / "gtv_chrome"
 PORT = 8771
+HTTPS_PORT = 8443
 
 # SSE clients subscribed to remote-command broadcasts.
 _subscribers: set = set()
@@ -152,6 +153,18 @@ class GTVHandler(http.server.SimpleHTTPRequestHandler):
         if action == "wake":
             broadcast({"type": "command", "action": action})
             return self._json(200, {"ok": True, "action": action, "broadcast": True})
+        if action == "voice_tap":
+            # Display tap = talk trigger. Write the flag the voice bridge
+            # watches; it force-wakes jeeves_speaker (server mic does STT).
+            broadcast({"type": "command", "action": "voice_state", "state": "listening"})
+            try:
+                flag = os.path.expanduser("~/.geeza/gtv_voice_tap")
+                os.makedirs(os.path.dirname(flag), exist_ok=True)
+                with open(flag, "w") as f:
+                    f.write(str(time.time()))
+            except Exception as e:
+                return self._json(500, {"ok": False, "error": str(e)})
+            return self._json(200, {"ok": True, "action": action})
         if action in ("volume_up", "volume_down", "mute"):
             ok, out = handle_volume(action)
             return self._json(200, {"ok": ok, "action": action, "result": out})
@@ -185,6 +198,11 @@ class GTVHandler(http.server.SimpleHTTPRequestHandler):
             self._json_remote(action)
         elif path == "/api/voice":
             self._handle_voice()
+        elif path == "/api/gtv_publish":
+            # internal: jeeves_speaker pushes voice events onto the display plane
+            data = self._read_body()
+            broadcast({"type": "command", **data})
+            self._json(200, {"ok": True})
         else:
             self.send_response(404)
             self.end_headers()
@@ -295,5 +313,34 @@ def start_server():
         httpd.serve_forever()
 
 
+def start_https_server():
+    """Start the same GTV server over TLS on :8443 so browser-based clients
+    (Android WebView/Fully) get a SECURE origin — required for getUserMedia
+    (microphone) access. Self-signed cert generated at startup if missing.
+    Clients must trust the cert once (Fully: Trust SSLCertificates)."""
+    import ssl
+    cert = os.path.expanduser("~/.geeza/gtv-selfsigned.pem")
+    key = os.path.expanduser("~/.geeza/gtv-selfsigned-key.pem")
+    if not (os.path.exists(cert) and os.path.exists(key)):
+        os.makedirs(os.path.dirname(cert), exist_ok=True)
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", key, "-out", cert, "-days", "3650",
+            "-subj", "/CN=gtv.local",
+            "-addext", "subjectAltName=DNS:localhost,IP:192.168.12.231,IP:10.99.99.2,IP:100.103.195.22",
+        ], check=True, capture_output=True)
+        print(f"[https] generated self-signed cert at {cert}")
+    os.chdir(GTV_DIR)
+    httpd = ReusableThreadingServer(("", HTTPS_PORT), GTVHandler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(cert, key)
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    print(f"Genius TV HTTPS server on https://localhost:{HTTPS_PORT} (mic-capable)")
+    httpd.serve_forever()
+
+
 if __name__ == "__main__":
+    # Both planes on one process: :8771 (HTTP, big TV kiosk) + :8443 (HTTPS,
+    # tablet clients with mic access for push-to-talk).
+    threading.Thread(target=start_https_server, daemon=True).start()
     start_server()

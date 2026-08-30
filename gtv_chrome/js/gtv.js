@@ -360,6 +360,12 @@ window.gtv = (() => {
                         setVoiceState('reply');
                         setTranscript(cmd.text || '');
                         scheduleOverlayHide();
+                        scheduleIdleScrub();
+                        if (cmd.audio) playReplyAudio(cmd.audio);
+                    }
+                    if (cmd.action === 'voice_state' && cmd.state === 'listening') {
+                        setTranscript('');
+                        scheduleIdleScrub();
                     }
                     if (cmd.action === 'voice_clear') {
                         hideVoiceOverlay();
@@ -371,65 +377,150 @@ window.gtv = (() => {
         };
     }
 
-    // ---- tap-to-talk (OSTT-style press-once/press-again) ------------------
-    // On the art screen, a tap starts recording; the next tap stops it and
-    // POSTs the audio to /api/voice (server does STT + chat + TTS). Uses
-    // MediaRecorder; the server does STT/LLM/TTS and broadcasts state to
-    // every display on the SSE plane.
-    let mediaRecorder = null, audioChunks = [], recording = false;
+    // ---- push-to-talk (device mic, hold-to-talk) ---------------------------
+    // Each tablet records its OWN mic (HTTPS origin required for getUserMedia)
+    // and posts to /api/voice: STT -> Jeeves /chat -> TTS. Reply caption goes
+    // to ALL displays via SSE; reply audio plays on the device that talked.
+    // Hold the mic button, speak, release = end of query. No wake word.
+    let pttRecording = false;
+    let pttStream = null;
+    let pttRecorder = null;
 
-    async function toggleVoiceRecording() {
-        if (!recording) {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-                mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-                mediaRecorder.onstop = async () => {
-                    stream.getTracks().forEach(t => t.stop());
-                    const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-                    const b64 = await new Promise((res) => {
-                        const fr = new FileReader();
-                        fr.onloadend = () => res(fr.result.split(',')[1]);
-                        fr.readAsDataURL(blob);
-                    });
-                    setVoiceState('thinking'); setTranscript('…');
-                    try {
-                        const r = await fetch('/api/voice', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ audio_base64: b64 })
-                        });
-                        const j = await r.json();
-                        if (j.ok && j.audio) playReplyAudio(j.audio);
-                        else if (j.ok && !j.text) { hideVoiceOverlay(); setVoiceState('idle'); }
-                    } catch (err) { hideVoiceOverlay(); setVoiceState('idle'); }
-                };
-                mediaRecorder.start();
-                recording = true;
-                showVoiceOverlay(); setVoiceState('listening'); setTranscript('');
-            } catch (e) {
-                // mic unavailable or denied — show idle, don't break art display
-                setVoiceState('idle');
+    async function pttStart() {
+        if (pttRecording) return;
+        try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                setTranscript('mic unavailable (need HTTPS)');
+                return;
             }
-        } else {
-            try { mediaRecorder.stop(); } catch (e) {}
-            recording = false;
+            pttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            pttRecorder = new MediaRecorder(pttStream);
+            const chunks = [];
+            pttRecorder.ondataavailable = (e) => chunks.push(e.data);
+            pttRecorder.onstop = async () => {
+                // Read mimeType BEFORE nulling (this exact order caused a
+                // null-deref that silently killed the whole pipeline).
+                const mimeType = pttRecorder.mimeType || 'audio/webm';
+                pttStream.getTracks().forEach(t => t.stop());
+                pttStream = null; pttRecorder = null;
+                const blob = new Blob(chunks, { type: mimeType });
+                const b64 = await new Promise((res) => {
+                    const fr = new FileReader();
+                    fr.onloadend = () => res(fr.result.split(',')[1]);
+                    fr.readAsDataURL(blob);
+                });
+                if (blob.size < 6000) {   // tap, not speech — abort quietly
+                    hideVoiceOverlay(); setVoiceState('idle'); return;
+                }
+                setVoiceState('thinking'); setTranscript('…');
+                try {
+                    const r = await fetch('/api/voice', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ audio_base64: b64 })
+                    });
+                    const j = await r.json();
+                    if (j.ok && j.reply) {
+                        showVoiceOverlay(); setVoiceState('reply');
+                        setTranscript(j.reply);
+                        scheduleOverlayHide(); scheduleIdleScrub();
+                        if (j.audio) {
+                            playReplyAudio(j.audio);
+                        } else {
+                            scheduleIdleScrub();
+                        }
+                    } else {
+                        setTranscript(j.reply || '…');
+                        scheduleOverlayHide(); scheduleIdleScrub();
+                    }
+                } catch (err) {
+                    setTranscript('connection lost');
+                    scheduleOverlayHide(); scheduleIdleScrub();
+                }
+            };
+            pttRecorder.start();
+            pttRecording = true;
+            showVoiceOverlay(); setVoiceState('listening'); setTranscript('');
+            const btn = document.getElementById('ptt-btn');
+            if (btn) { btn.classList.add('recording'); btn.classList.add('visible'); }
+            scheduleIdleScrub(60000);  // generous ceiling; release is the real end
+        } catch (e) {
+            setTranscript('mic denied — check WebView permission');
+            scheduleOverlayHide(4000); scheduleIdleScrub();
         }
+    }
+
+    function pttStop() {
+        if (!pttRecording) return;
+        pttRecording = false;
+        const btn = document.getElementById('ptt-btn');
+        if (btn) {
+            btn.classList.remove('recording');
+            // Keep the controls surface up right after release (user is engaged);
+            // it fades on the normal 4s cursor timer.
+            btn.classList.add('visible');
+        }
+        scheduleIdleScrub();
+        clearTimeout(cursorTimer);
+        cursorTimer = setTimeout(hideCursor, 4000);
+        try { pttRecorder.stop(); } catch (e) {}
+    }
+
+    function mountPttButton() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return; // no mic → no button
+        const btn = document.createElement('button');
+        btn.id = 'ptt-btn';
+        btn.setAttribute('aria-label', 'Hold to talk');
+        btn.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg>';
+        const down = (e) => { e.preventDefault(); e.stopPropagation(); pttStart(); };
+        const up = (e) => { e.preventDefault(); e.stopPropagation(); pttStop(); };
+        btn.addEventListener('pointerdown', down);
+        btn.addEventListener('pointerup', up);
+        btn.addEventListener('pointercancel', up);
+        btn.addEventListener('pointerleave', up);
+        btn.addEventListener('contextmenu', (e) => e.preventDefault());
+        document.body.appendChild(btn);
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', mountPttButton);
+    } else {
+        mountPttButton();
     }
 
     function playReplyAudio(b64) {
         try {
             const audio = new Audio('data:audio/wav;base64,' + b64);
-            audio.onended = () => { setTimeout(() => { hideVoiceOverlay(); setVoiceState('idle'); }, 4000); };
-            audio.play().catch(() => { hideVoiceOverlay(); });
+            audio.onended = () => { setTimeout(() => { endVoiceInteraction(); }, 4000); };
+            audio.play().catch(() => { endVoiceInteraction(); });
         } catch (e) { /* playback optional */ }
+    }
+
+    // End-of-interaction cleanup: overlay gone, state idle, and the PTT button
+    // returns to its hidden (burnin-safe) state unless the cursor is still up.
+    function endVoiceInteraction() {
+        hideVoiceOverlay();
+        setVoiceState('idle');
+        if (!cursorVisible) {
+            const pttBtn = document.getElementById('ptt-btn');
+            if (pttBtn) pttBtn.classList.remove('visible');
+        }
     }
 
     let overlayHideTimer = null;
     function scheduleOverlayHide(ms) {
         clearTimeout(overlayHideTimer);
-        overlayHideTimer = setTimeout(() => { hideVoiceOverlay(); setVoiceState('idle'); }, ms || 12000);
+        overlayHideTimer = setTimeout(() => { endVoiceInteraction(); }, ms || 12000);
+    }
+
+    // Idle-scrub: if any voice state lingers (missed SSE reply, stale card),
+    // force everything back to a clean idle after a generous ceiling.
+    let idleScrubTimer = null;
+    function scheduleIdleScrub(ms) {
+        clearTimeout(idleScrubTimer);
+        idleScrubTimer = setTimeout(() => {
+            endVoiceInteraction();
+            setTranscript('');
+        }, ms || 25000);
     }
 
 
@@ -464,6 +555,10 @@ window.gtv = (() => {
         document.body.style.cursor = 'default';
         const exitBtn = document.getElementById('exit-btn');
         if (exitBtn) exitBtn.style.opacity = '0.7';
+        // Reveal PTT with the exit X (single tap = controls surface); it fades
+        // with the same 4s timer. Burn-in: never shown while ambient.
+        const pttBtn = document.getElementById('ptt-btn');
+        if (pttBtn && navigator.mediaDevices) pttBtn.classList.add('visible');
         clearTimeout(cursorTimer);
         cursorTimer = setTimeout(hideCursor, 4000);
     }
@@ -473,6 +568,12 @@ window.gtv = (() => {
         document.body.style.cursor = 'none';
         const exitBtn = document.getElementById('exit-btn');
         if (exitBtn) exitBtn.style.opacity = '0';
+        // PTT fades too — unless a recording is in flight (the recording
+        // class pins visibility via CSS so the button never vanishes mid-hold).
+        if (!pttRecording) {
+            const pttBtn = document.getElementById('ptt-btn');
+            if (pttBtn) pttBtn.classList.remove('visible');
+        }
     }
 
     function quit() {
@@ -565,14 +666,8 @@ window.gtv = (() => {
         // Prevent right-click menu
         document.addEventListener('contextmenu', (e) => e.preventDefault());
 
-        // Tap-to-talk: double-tap anywhere on the art toggles voice recording.
-        // (Single tap remains reserved for the one-shot fullscreen arm.)
-        let lastTap = 0;
-        document.addEventListener('pointerdown', () => {
-            const now = Date.now();
-            if (now - lastTap < 400) { toggleVoiceRecording(); lastTap = 0; }
-            else lastTap = now;
-        });
+        // Push-to-talk replaced double-tap: hold the mic button (PTT) instead.
+        // Taps elsewhere stay reserved for the one-shot fullscreen arm.
 
         // Fullscreen: hide browser chrome for a clean ambient display.
         initFullscreen();
