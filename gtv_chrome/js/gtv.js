@@ -350,9 +350,86 @@ window.gtv = (() => {
                 if (cmd && cmd.type === 'command') {
                     if (cmd.action === 'next' || cmd.action === 'prev') rotateArt(cmd.action);
                     if (cmd.action === 'wake') setVoiceState('listening');
+                    if (cmd.action === 'voice_state') {
+                        showVoiceOverlay();
+                        setVoiceState(cmd.state || 'listening');
+                        setTranscript(cmd.text || '');
+                    }
+                    if (cmd.action === 'voice_reply') {
+                        showVoiceOverlay();
+                        setVoiceState('reply');
+                        setTranscript(cmd.text || '');
+                        scheduleOverlayHide();
+                    }
+                    if (cmd.action === 'voice_clear') {
+                        hideVoiceOverlay();
+                        setVoiceState('idle');
+                        setTranscript('');
+                    }
                 }
             } catch (e) { /* ignore malformed */ }
         };
+    }
+
+    // ---- tap-to-talk (OSTT-style press-once/press-again) ------------------
+    // On the art screen, a tap starts recording; the next tap stops it and
+    // POSTs the audio to /api/voice (server does STT + chat + TTS). Uses
+    // MediaRecorder; the server does STT/LLM/TTS and broadcasts state to
+    // every display on the SSE plane.
+    let mediaRecorder = null, audioChunks = [], recording = false;
+
+    async function toggleVoiceRecording() {
+        if (!recording) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+                mediaRecorder.onstop = async () => {
+                    stream.getTracks().forEach(t => t.stop());
+                    const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+                    const b64 = await new Promise((res) => {
+                        const fr = new FileReader();
+                        fr.onloadend = () => res(fr.result.split(',')[1]);
+                        fr.readAsDataURL(blob);
+                    });
+                    setVoiceState('thinking'); setTranscript('…');
+                    try {
+                        const r = await fetch('/api/voice', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ audio_base64: b64 })
+                        });
+                        const j = await r.json();
+                        if (j.ok && j.audio) playReplyAudio(j.audio);
+                        else if (j.ok && !j.text) { hideVoiceOverlay(); setVoiceState('idle'); }
+                    } catch (err) { hideVoiceOverlay(); setVoiceState('idle'); }
+                };
+                mediaRecorder.start();
+                recording = true;
+                showVoiceOverlay(); setVoiceState('listening'); setTranscript('');
+            } catch (e) {
+                // mic unavailable or denied — show idle, don't break art display
+                setVoiceState('idle');
+            }
+        } else {
+            try { mediaRecorder.stop(); } catch (e) {}
+            recording = false;
+        }
+    }
+
+    function playReplyAudio(b64) {
+        try {
+            const audio = new Audio('data:audio/wav;base64,' + b64);
+            audio.onended = () => { setTimeout(() => { hideVoiceOverlay(); setVoiceState('idle'); }, 4000); };
+            audio.play().catch(() => { hideVoiceOverlay(); });
+        } catch (e) { /* playback optional */ }
+    }
+
+    let overlayHideTimer = null;
+    function scheduleOverlayHide(ms) {
+        clearTimeout(overlayHideTimer);
+        overlayHideTimer = setTimeout(() => { hideVoiceOverlay(); setVoiceState('idle'); }, ms || 12000);
     }
 
 
@@ -487,6 +564,15 @@ window.gtv = (() => {
 
         // Prevent right-click menu
         document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        // Tap-to-talk: double-tap anywhere on the art toggles voice recording.
+        // (Single tap remains reserved for the one-shot fullscreen arm.)
+        let lastTap = 0;
+        document.addEventListener('pointerdown', () => {
+            const now = Date.now();
+            if (now - lastTap < 400) { toggleVoiceRecording(); lastTap = 0; }
+            else lastTap = now;
+        });
 
         // Fullscreen: hide browser chrome for a clean ambient display.
         initFullscreen();

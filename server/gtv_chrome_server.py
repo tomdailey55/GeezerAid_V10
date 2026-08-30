@@ -22,6 +22,7 @@ connected displays at once:
 """
 import http.server
 import os
+import re
 import time
 import queue
 import subprocess
@@ -66,14 +67,42 @@ def _run(cmd):
         return False, str(e)
 
 
+def _hdmi_sink_id() -> str:
+    """Resolve the HDMI sink's numeric node ID from `wpctl status`.
+
+    wpctl set-volume/set-mute require a numeric node ID (not a sink name),
+    and node IDs can change across PipeWire restarts, so we resolve the HDMI
+    sink by name each call. Returns the ID string, or "" if not found."""
+    try:
+        out = subprocess.run(
+            ["wpctl", "status"], capture_output=True, text=True, timeout=8
+        ).stdout
+    except Exception:
+        return ""
+    for line in out.splitlines():
+        if "HDMI" in line and "Radeon" in line:
+            # line looks like: " │      82. Radeon High Definition ... (HDMI)"
+            m = re.search(r"(\d+)\.\s+Radeon", line)
+            if m:
+                return m.group(1)
+    return ""
+
+
 def handle_volume(action: str) -> tuple[bool, str]:
-    """Change default-sink volume. Returns (ok, human message)."""
+    """Change TV (HDMI) volume. Returns (ok, human message).
+
+    Targets the HDMI sink explicitly (not @DEFAULT_SINK@) so the GTV remote
+    always controls the TV speakers even when the system default sink is a
+    USB DAC (headphone/media use)."""
+    sink = _hdmi_sink_id()
+    if not sink:
+        return False, "HDMI sink not found"
     if action == "volume_up":
-        return _run("wpctl set-volume @DEFAULT_SINK@ 0.05+")
+        return _run(f"wpctl set-volume {sink} 0.05+")
     if action == "volume_down":
-        return _run("wpctl set-volume @DEFAULT_SINK@ 0.05-")
+        return _run(f"wpctl set-volume {sink} 0.05-")
     if action == "mute":
-        return _run("wpctl set-mute @DEFAULT_SINK@ toggle")
+        return _run(f"wpctl set-mute {sink} toggle")
     return False, "unknown volume action"
 
 
@@ -154,9 +183,70 @@ class GTVHandler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/remote":
             action = (query.get("action") or [""])[0]
             self._json_remote(action)
+        elif path == "/api/voice":
+            self._handle_voice()
         else:
             self.send_response(404)
             self.end_headers()
+
+    # ---- voice loop (OSTT-style: record -> transcribe -> act) -------------
+    # The client taps the art screen, records audio, and POSTs base64 audio
+    # here. We call the GA server's /stt then /chat, broadcast state onto the
+    # SSE plane (so every display shows Listening…/the caption/reply), and
+    # return the TTS audio so the caller can play it locally.
+    GA_CHAT_URL = os.getenv("GA_SERVER_URL", "http://127.0.0.1:8766")
+
+    def _read_body(self) -> dict:
+        try:
+            n = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            n = 0
+        raw = self.rfile.read(n) if n else b""
+        try:
+            return json.loads(raw.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            return {}
+
+    def _handle_voice(self):
+        data = self._read_body()
+        audio_b64 = data.get("audio_base64", "")
+        if not audio_b64:
+            self._json(400, {"ok": False, "error": "missing audio_base64"})
+            return
+        import base64 as _b64
+        # 1) transcribe via the GA server
+        try:
+            req = urllib.request.Request(
+                f"{self.GA_CHAT_URL}/stt",
+                data=json.dumps({"audio_base64": audio_b64}).encode(),
+                headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=60) as r:
+                stt = json.loads(r.read().decode())
+        except Exception as e:
+            self._json(502, {"ok": False, "error": f"stt failed: {e}"})
+            return
+        text = (stt.get("text") or "").strip()
+        if not text:
+            self._json(200, {"ok": True, "text": "", "reply": "", "audio": None})
+            return
+        broadcast({"action": "voice_state", "state": "thinking", "text": text})
+
+        # 2) ask Jeeves (persona-aware; "hey circe" -> Andrea's persona)
+        try:
+            req = urllib.request.Request(
+                f"{self.GA_CHAT_URL}/chat",
+                data=json.dumps({"text": text}).encode(),
+                headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=120) as r:
+                chat = json.loads(r.read().decode())
+        except Exception as e:
+            self._json(502, {"ok": False, "error": f"chat failed: {e}"})
+            return
+        reply = chat.get("text") or ""
+        audio = chat.get("audio")
+        # 3) push the reply onto the display plane as a caption card
+        broadcast({"action": "voice_reply", "query": text, "text": reply})
+        self._json(200, {"ok": True, "text": text, "reply": reply, "audio": audio})
 
     def _sse(self):
         self.send_response(200)
