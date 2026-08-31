@@ -187,6 +187,22 @@ class GTVHandler(http.server.SimpleHTTPRequestHandler):
             self._json_remote(action)
         elif path == "/api/events":
             self._sse()
+        elif path == "/api/desk-data":
+            # GA-Desk cards: calendar + reminders (live via AppleScript, else
+            # seed from ga_context.json — provenance in the payload) + weather.
+            try:
+                from desk_data import collect
+                data = collect()
+            except Exception as e:
+                data = {"ok": False, "error": str(e),
+                        "calendar": {"source": "unavailable", "events": []},
+                        "reminders": {"source": "unavailable", "items": []}}
+            try:
+                summary, detail = fetch_weather()
+                data["weather"] = {"summary": summary or "—", "detail": detail or "unavailable"}
+            except Exception:
+                data["weather"] = {"summary": "—", "detail": "unavailable"}
+            self._json(200, data)
         else:
             super().do_GET()
 

@@ -415,6 +415,7 @@ window.gtv = (() => {
         // Suspend art rotation to keep the screen stable while working; the
         // desktop/dashboard will be fullscreen over this kiosk anyway.
         document.body.classList.add('desk-open');
+        showDeskData();
         showVoiceOverlay();
         setVoiceState('reply');
         setTranscript('Desk starting… say "desk down" to return to the art.');
@@ -426,6 +427,46 @@ window.gtv = (() => {
         // TCL kiosk swaps to the dashboard URL; iMac fires an osascript to
         // bring Hermes desktop forward. Wired by the deploy script.
         try { if (window.gaDeskOpen) window.gaDeskOpen(); } catch (e) {}
+    }
+
+    // ---- GA-Desk card data (calendar / reminders / weather) ---------------
+    // One fetch per desk_open; renders provenance honestly (live rows vs seed
+    // demo data vs live-but-empty). Never invents rows client-side.
+    function showDeskData() {
+        fetch('/api/desk-data', {cache: 'no-store'}).then(r => r.json()).then(d => {
+            if (!deskOpen) return;
+            const cal = document.getElementById('desk-cal-list');
+            const todo = document.getElementById('desk-todo-list');
+            if (cal) {
+                const evs = (d.calendar && d.calendar.events) || [];
+                const src = (d.calendar && d.calendar.source) || '?';
+                cal.innerHTML = evs.length
+                    ? evs.map(ev => '<div class="ev"><div class="t">' + esc(ev.title || '') +
+                        '</div><div class="w">' + esc(ev.time || ev.when || '') +
+                        ' · ' + esc(srcLabel(src)) + '</div></div>').join('')
+                    : '<div id="desk-empty">No events today (' + esc(srcLabel(src)) + ')</div>';
+            }
+            if (todo) {
+                const items = (d.reminders && d.reminders.items) || [];
+                const src = (d.reminders && d.reminders.source) || '?';
+                todo.innerHTML = items.length
+                    ? items.map(it => '<div class="todo' + (it.done ? ' done' : '') + '">• ' +
+                        esc(it.title || '') + ' <span class="w">(' + esc(srcLabel(src)) + ')</span></div>').join('')
+                    : '<div id="desk-empty">Nothing pending (' + esc(srcLabel(src)) + ')</div>';
+            }
+            const wb = document.getElementById('desk-weath-big');
+            const ws = document.getElementById('desk-weath-sm');
+            if (wb && d.weather) wb.textContent = d.weather.summary || '—';
+            if (ws && d.weather) ws.textContent = d.weather.detail || '';
+        }).catch(() => {});
+    }
+    function esc(s) {
+        return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    }
+    function srcLabel(src) {
+        if (src === 'live' || src === 'live-empty') return 'live';
+        if (src === 'seed') return 'demo';
+        return src;
     }
 
     function closeDesk() {
