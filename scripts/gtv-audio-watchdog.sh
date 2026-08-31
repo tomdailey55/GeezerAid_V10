@@ -44,6 +44,22 @@ if ! wpctl status 2>/dev/null | grep -qiE "Radeon.*HDMI"; then
     exit 1
 fi
 
+# --- 1b. New sink instance health: unmute + sane volume --------------------
+# After a hotplug cycle the fresh HDMI sink comes back MUTED at hot volume
+# (seen 2026-08-31: vol 1.13 MUTED). Find the sink id and normalize it.
+HDMISK=$(wpctl status 2>/dev/null | grep -iE "Radeon.*Digital Stereo \\(HDMI\\)" | grep -oE "[0-9]+\\." | tr -d ".")
+if [ -n "$HDMISK" ]; then
+    if wpctl get-volume "$HDMISK" 2>/dev/null | grep -q MUTED; then
+        log "REPAIR: HDMI sink $HDMISK returned MUTED; unmuting"
+        wpctl set-mute "$HDMISK" 0 >/dev/null 2>&1
+    fi
+    V=$(wpctl get-volume "$HDMISK" 2>/dev/null | grep -oE "[0-9.]+" | head -1)
+    if [ -n "$V" ] && awk "BEGIN{exit !($V > 0.9 || $V < 0.4)}"; then
+        log "REPAIR: HDMI sink volume '$V' out of band; setting 0.75"
+        wpctl set-volume "$HDMISK" 0.75 >/dev/null 2>&1
+    fi
+fi
+
 # --- 2. Is echo-cancel-playback linked to HDMI? ----------------------------
 CURRENT=$(pw-link -l 2>/dev/null | grep -A2 "^${EC_PLAYBACK}:output_FL" | grep -oE "\-> [^ ]+" | head -1)
 if [ "$CURRENT" = "-> ${HDMI_SINK_NAME}:playback_FL" ]; then
