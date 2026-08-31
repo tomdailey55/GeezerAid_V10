@@ -3767,7 +3767,8 @@ class ChatHandler(BaseHTTPRequestHandler):
                 pass
             try:
                 import urllib.request as _u
-                _req = _u.Request("http://127.0.0.1:8771/api/gtv_publish", method="POST",
+                _pub = os.getenv("GA_GTV_PUBLISH_URL", "http://100.103.195.22:8771/api/gtv_publish")
+                _req = _u.Request(_pub, method="POST",
                                   data=json.dumps({"action": "desk_open", "said": text}).encode(),
                                   headers={"Content-Type": "application/json"})
                 _u.urlopen(_req, timeout=5).read()
@@ -3784,7 +3785,8 @@ class ChatHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             try:
-                req2 = urllib.request.Request("http://127.0.0.1:8771/api/gtv_publish", method="POST",
+                _pub = os.getenv("GA_GTV_PUBLISH_URL", "http://100.103.195.22:8771/api/gtv_publish")
+                req2 = urllib.request.Request(_pub, method="POST",
                                               data=json.dumps({"action": "desk_close", "said": text}).encode(),
                                               headers={"Content-Type": "application/json"})
                 urllib.request.urlopen(req2, timeout=5).read()
