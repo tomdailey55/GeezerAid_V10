@@ -388,10 +388,58 @@ window.gtv = (() => {
                         setVoiceState('idle');
                         setTranscript('');
                     }
+                    // ---- GA-Desk: 3-state surface (art ⇄ quick ⇄ desk) ----
+                    if (cmd.action === 'desk_open') {
+                        deskOpenState();
+                    }
+                    if (cmd.action === 'desk_close') {
+                        closeDesk();
+                    }
                 }
             } catch (e) { /* ignore malformed */ }
         };
     }
+
+    // ---- GA-Desk state machine -------------------------------------------
+    // ART (ambient) ⇄ CAPTION (PTT quick query) ⇄ DESK (full user dashboard
+    // via Hermes desktop over the kiosk / dashboard page on the TV).
+    // desk_open: suspend art timers, show handoff card; the desktop switcher
+    // (macOS: osascript bring-forward; TCL: dashboard URL swap) takes it from
+    // here. desk_close: kill any timeout, resume art.
+    let deskOpen = false;
+    let deskTimeoutTimer = null;
+    const DESK_IDLE_TIMEOUT_MS = 10 * 60 * 1000;   // 10 min default
+
+    function deskOpenState() {
+        deskOpen = true;
+        // Suspend art rotation to keep the screen stable while working; the
+        // desktop/dashboard will be fullscreen over this kiosk anyway.
+        document.body.classList.add('desk-open');
+        showVoiceOverlay();
+        setVoiceState('reply');
+        setTranscript('Desk starting… say "desk down" to return to the art.');
+        scheduleOverlayHide(8000);
+        scheduleIdleScrub(60000);
+        clearTimeout(deskTimeoutTimer);
+        deskTimeoutTimer = setTimeout(closeDesk, DESK_IDLE_TIMEOUT_MS);
+        // Hook for the device-side switcher (install_andrea_kiosk env): the
+        // TCL kiosk swaps to the dashboard URL; iMac fires an osascript to
+        // bring Hermes desktop forward. Wired by the deploy script.
+        try { if (window.gaDeskOpen) window.gaDeskOpen(); } catch (e) {}
+    }
+
+    function closeDesk() {
+        deskOpen = false;
+        clearTimeout(deskTimeoutTimer);
+        document.body.classList.remove('desk-open');
+        hideVoiceOverlay();
+        setVoiceState('idle');
+        setTranscript('');
+        // Resume the art clock: trigger one rotation immediately.
+        try { rotateArt(); } catch (e) {}
+        try { if (window.gaDeskClose) window.gaDeskClose(); } catch (e) {}
+    }
+    window.gaDeskClose = null; // deploy hook: iMac switcher assigns handlers
 
     // ---- push-to-talk (device mic, hold-to-talk) ---------------------------
     // Each tablet records its OWN mic (HTTPS origin required for getUserMedia)

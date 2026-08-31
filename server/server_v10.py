@@ -607,9 +607,21 @@ class IntentClassifier:
         # hermes_memory and answered as spoken text instead of being put on
         # the screen. The distinguishing signal is an explicit request to SHOW
         # something on the dashboard (a screen verb, or "with the video").
+        # GA-Desk (3-state surface): "bring up my dashboard"/"desk down" map
+        # to the SAME intent — _handle_dashboard translates to desk open/close.
         if re.search(r"\b(?:on\s+the\s+)?dash(?:board)?\b|\bshow\s+(?:me\s+)?.*\bwith\s+the\s+video\b"
                      r"|\bwith\s+the\s+video\s+it\s+came\s+from\b"
                      r"|\bput\s+.*\bon\s+the\s+screen\b|\bon\s+the\s+big\s+screen\b", lo):
+            return "dashboard", "server", None
+        # Desk: open the full user dashboard (Hermes desktop over kiosk)
+        if re.search(r"\b(?:bring|pull|put)\s+up\s+(?:my\s+)?(?:user\s+)?(dash-?board|desk)\b"
+                     r"|\bopen\s+(?:my\s+)?(?:dash-?board|desk)\b"
+                     r"|\bshow\s+(?:my\s+)?(?:dash-?board|desk)\b", lo):
+            return "dashboard", "server", None
+        # Desk: close — back to ambient art
+        if re.search(r"\b(?:desk|dash-?board)\s+(?:down|away|off|close[d]?)\b"
+                     r"|\bback\s+to\s+(?:the\s+)?art\b|\bhide\s+(?:my\s+)?desk\b"
+                     r"|\bput\s+(?:my\s+)?desk\s+away\b", lo):
             return "dashboard", "server", None
         # Dashboard navigation / dismissal
         if re.search(r"\b(?:back\s+to\s+the\s+(?:room|art|screensaver)|hide\s+the\s+dash(?:board)?"
@@ -3740,6 +3752,45 @@ class ChatHandler(BaseHTTPRequestHandler):
                 headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.loads(r.read())
+
+        # ── GA-Desk: open the full user dashboard (3-state surface) ──
+        # "bring up my dashboard" / "open my desk" → broadcast desk:open over
+        # the GTV SSE plane; every display shows the handoff card, and the
+        # client-side switcher (kiosk on TCL, Hermes desktop over kiosk on the
+        # iMac) comes forward. Timeout daemon closes it back to art.
+        if re.search(r"\b(?:bring|pull|put)\s+up\s+(?:my\s+)?(?:user\s+)?(dash-?board|desk)\b"
+                     r"|\bopen\s+(?:my\s+)?(?:dash-?board|desk)\b"
+                     r"|\bshow\s+(?:my\s+)?(?:dash-?board|desk)\b", lo):
+            try:
+                post({"type": "desk", "desk": "open", "said": text})
+            except Exception:
+                pass
+            try:
+                import urllib.request as _u
+                _req = _u.Request("http://127.0.0.1:8771/api/gtv_publish", method="POST",
+                                  data=json.dumps({"action": "desk_open", "said": text}).encode(),
+                                  headers={"Content-Type": "application/json"})
+                _u.urlopen(_req, timeout=5).read()
+            except Exception:
+                pass
+            return "Bringing up your desk, sir. Say 'desk down' or 'back to the art' when you're finished."
+
+        # ── GA-Desk: close — back to the ambient art layer ──
+        if re.search(r"\b(?:desk|dash-?board)\s+(?:down|away|off|close[d]?)\b"
+                     r"|\bback\s+to\s+(?:the\s+)?art\b|\bhide\s+(?:my\s+)?desk\b"
+                     r"|\bput\s+(?:my\s+)?desk\s+away\b", lo):
+            try:
+                post({"type": "idle", "said": text})
+            except Exception:
+                pass
+            try:
+                req2 = urllib.request.Request("http://127.0.0.1:8771/api/gtv_publish", method="POST",
+                                              data=json.dumps({"action": "desk_close", "said": text}).encode(),
+                                              headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req2, timeout=5).read()
+            except Exception:
+                pass
+            return "Back to the art, sir."
 
         # ── dismissal: return to the ambient art layer ──
         if re.search(r"back\s+to\s+the\s+(?:room|art|screensaver)|hide\s+the\s+dash|"
